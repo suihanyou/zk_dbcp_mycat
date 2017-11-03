@@ -33,9 +33,9 @@ public class Test1 {
             @SuppressWarnings("unused")
             ApplicationContext context = null;
             if (System.getProperty("file.separator").equals("\\")) {
-                context = new FileSystemXmlApplicationContext("src/test/resources/applicationContext-base-db1.xml");
+                context = new FileSystemXmlApplicationContext("src/test/resources/applicationContext-base-db.xml");
             } else {
-                context = new FileSystemXmlApplicationContext("src/test/resources/applicationContext-base-db1.xml");
+                context = new FileSystemXmlApplicationContext("src/test/resources/applicationContext-base-db.xml");
             }
             confSeqDao = context.getBean(ConfSeqDao.class);
 

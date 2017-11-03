@@ -1,5 +1,7 @@
 package net.snailgame.db.dbcp.vo;
 
+import java.util.UUID;
+
 /**
  * <p>
  * Title: ConnMycatInfo.java
@@ -20,6 +22,7 @@ public class ConnMycatInfoVo {
     private String url;
     private String userName;
     private String passwd;
+    private String nodeId;
 
     public ConnMycatInfoVo(String servicePath, String clientPath, MycatNodeVo vo, String userName) {
         this.url = vo.getUrl();
@@ -27,6 +30,7 @@ public class ConnMycatInfoVo {
         this.setClientPath(clientPath);
         this.passwd = vo.getUsers().get(userName).getPasswd();
         this.userName = vo.getUsers().get(userName).getUserName();
+        this.nodeId = UUID.randomUUID().toString();
     }
 
     public String getUserName() {
@@ -67,5 +71,9 @@ public class ConnMycatInfoVo {
 
     public void setClientPath(String clientPath) {
         this.clientPath = clientPath;
+    }
+
+    public String getNodeId() {
+        return nodeId;
     }
 }

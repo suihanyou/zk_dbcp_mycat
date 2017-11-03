@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE configuration PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-config.dtd">
+
+<configuration>
+	<!-- 全局映射器不启用缓存 -->
+	<settings>
+		<setting name="cacheEnabled" value="false" />
+	</settings>
+	<typeAliases>
+		<typeAlias type="net.snailgame.db.dbcp.test.po.ConfSeq"
+			alias="confSeq" />
+	</typeAliases>
+	<mappers>
+		<mapper resource="sqlMap/conf_seq.xml" />
+	</mappers>
+</configuration>

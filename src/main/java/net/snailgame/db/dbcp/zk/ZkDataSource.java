@@ -14,6 +14,7 @@ import net.snailgame.db.dbcp.vo.ConnMycatInfoVo;
 import org.apache.commons.dbcp.BasicDataSource;
 import org.apache.curator.utils.ZKPaths;
 import org.apache.log4j.Logger;
+import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.data.Stat;
 import org.mybatis.spring.SqlSessionFactoryBean;
 import org.mybatis.spring.support.SqlSessionDaoSupport;
@@ -46,7 +47,7 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
     private MycatNodeService mycatNodeService;
     private SqlSessionFactoryBean sqlSessionFactoryBean;
     private ZkClient zkClient;
-
+    private BasicDataSource dataSourceTemplate;
     private long lastConnTime = 0; // 上次重连时间
 
 
@@ -72,25 +73,28 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
 
     @Override
     public void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) throws BeansException {
+        dataSourceTemplate = beanFactory.getBean(BasicDataSource.class);
+        if (dataSourceTemplate == null) {
+            throw new NoSuchBeanDefinitionException(BasicDataSource.class);
+        }
         zkDbConfig = beanFactory.getBean(ZkDbConfig.class);
         if (zkDbConfig == null) {
             throw new NoSuchBeanDefinitionException(ZkDbConfig.class);
         }
-        BasicDataSource basicDataSource = DbcpMaker.initBasicDataSource();
         try {
-            // init(basicDataSource.getUsername());
+            init(dataSourceTemplate.getUsername());
         } catch (Exception e) {
             e.printStackTrace();
             throw new FatalBeanException("从zk上初始化mycat节点失败");
         }
-        this.dataSource = basicDataSource;
+        this.dataSource = dataSourceTemplate;
         try {
             DataSourceTransactionManager transactionManager = beanFactory.getBean(DataSourceTransactionManager.class);
-            transactionManager.setDataSource(basicDataSource);
+            transactionManager.setDataSource(dataSourceTemplate);
             transactionManager.afterPropertiesSet();
 
             sqlSessionFactoryBean = beanFactory.getBean(SqlSessionFactoryBean.class);
-            sqlSessionFactoryBean.setDataSource(basicDataSource);
+            sqlSessionFactoryBean.setDataSource(dataSourceTemplate);
             sqlSessionFactoryBean.afterPropertiesSet();
 
         } catch (Exception e) {
@@ -112,8 +116,11 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
             }
 
             for (String node : nodes) {
-                String tempPath = ZKPaths.makePath(zkClient.getServicePath(), node);
-                getMycatNodeService().addClientNode(tempPath, zkClient.getDataAndStat(tempPath, stat), stat);
+                // 针对每个服务端查看有多少个client连接
+                String clientTempPath = ZKPaths.makePath(zkClient.getClientPath(), node);
+                String serviceTempPath = ZKPaths.makePath(zkClient.getServicePath(), node);
+                getMycatNodeService()
+                        .addMycatNode(serviceTempPath, zkClient.getDataAndStat(clientTempPath, stat), stat);
             }
 
             if (!getMycatNodeService().setConnMycatInfo(null)) {
@@ -183,13 +190,18 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
 
             this.dataSource = dataSource;
 
-            /*
-             * try { // 注册到选好的mycat 服务下
-             * zkClient.createNode(connNext.getClientPath(),
-             * CreateMode.EPHEMERAL); if (connNow != null) {
-             * zkClient.deleteNode(connNow.getClientPath()); } } catch
-             * (Exception e) { e.printStackTrace(); }
-             */
+            // 注册到选好的mycat 服务下
+            try {
+                zkClient.createNode(ZKPaths.makePath(connNext.getClientPath(), connNext.getNodeId()),
+                        CreateMode.EPHEMERAL_SEQUENTIAL);
+                // 如果是切换节点，删除之前注册的节点
+                if (connNow != null) {
+                    zkClient.deleteNode(ZKPaths.makePath(connNow.getClientPath(), connNow.getNodeId()));
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
 
             mycatNodeService.reset();
             lastConnTime = System.currentTimeMillis(); // 重连完成记录上次重连时间

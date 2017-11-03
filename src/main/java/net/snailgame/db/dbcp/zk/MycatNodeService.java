@@ -35,12 +35,12 @@ public class MycatNodeService {
     private ConnMycatInfoVo connNext;
     private boolean needReconn = false; // 是否需要重连
     private ReentrantLock lock = new ReentrantLock();
-    // private String servicePath;
+    private String servicePath;
     private String clientPath;
 
     public void init(String userName, String servicePath, String clientPath) {
         this.userName = userName;
-        // this.servicePath = servicePath;
+        this.servicePath = servicePath;
         this.clientPath = clientPath;
     }
 
@@ -61,9 +61,11 @@ public class MycatNodeService {
             String serviceTemp = null;
             String clientTemp = null;
             float rate = 100.0f;
+            float rateDiff = 1f;
             if (connNow != null) {
                 serviceTemp = connNow.getServicePath();
                 clientTemp = connNow.getClientPath();
+                rateDiff = 2f;
             }
 
             for (String key : nodes.keySet()) {
@@ -72,7 +74,7 @@ public class MycatNodeService {
                     continue;
                 }
                 // 大于两个节点的差值才有比较换节点
-                if (rate > (nodes.get(key).getRate() + (float) 2 / nodes.get(key).getWeight())) {
+                if (rate >= (nodes.get(key).getRate() + rateDiff / nodes.get(key).getWeight())) {
                     serviceTemp = key;
 
                     clientTemp = ZKPaths.makePath(clientPath, ZKPaths.getNodeFromPath(key));
@@ -102,7 +104,10 @@ public class MycatNodeService {
         }
     }
 
-    public void removeService(String path) {
+    /**
+     * @param path:传入变化的mycat 的注册节点的路径 /mycat/mycat-clust-1/regist/XXX
+     */
+    public void removeMycatNode(String path) {
         try {
             lock.lock();
             nodes.remove(path);
@@ -114,23 +119,31 @@ public class MycatNodeService {
         }
     }
 
-    public void removeClient(String path) {
+    /**
+     * @param path:传入变化的节点名称
+     */
+    public void removeCliNode(String nodeName) {
         try {
             lock.lock();
-            nodes.get(path).lessNumber();
+            nodes.get(ZKPaths.makePath(this.servicePath, nodeName)).lessNumber();
         } finally {
             lock.unlock();
         }
     }
 
-    public void addServiceNode(String path, byte[] nodeInfo, Stat stat) {
+    /**
+     * @param path:传入变化的mycat 的注册节点的路径 /mycat/mycat-clust-1/regist/XXX
+     * @param nodeInfo:path对应的getDate
+     * @param stat:/mycat/mycat-clust-1/client/XXX 对应的getChildren 的stat
+     */
+    public void addMycatNode(String path, byte[] nodeInfo, Stat stat) {
         try {
             lock.lock();
             MycatNodeVo mycatNodeVO = FastJSONUtils.toBeanFromByteArray(nodeInfo, MycatNodeVo.class);
             if (!mycatNodeVO.getUsers().containsKey(getUserName())) {
                 throw new RuntimeException("节点：" + path + "未能获取数据库：" + getUserName() + "的配置，请检查datebaseName");
             }
-            mycatNodeVO.setNumber(stat.getNumChildren()); // 客户端的节点个数
+            mycatNodeVO.setNumber(stat == null ? 0 : stat.getNumChildren()); // 客户端的节点个数
             nodes.put(path, mycatNodeVO);
 
             if (getBadNodes().contains(path)) {
@@ -141,14 +154,22 @@ public class MycatNodeService {
         }
     }
 
-    public void addClientNode(String path, byte[] nodeInfo, Stat stat) {
+    /**
+     * @param path:传入变化的节点名称
+     */
+    public void addCliNode(String nodeName) {
         try {
             lock.lock();
-            if (nodes.get(path) == null) {
-                addServiceNode(path, nodeInfo, stat);
-            } else {
-                nodes.get(path).setNumber(stat.getNumChildren());
-            }
+            nodes.get(ZKPaths.makePath(this.servicePath, nodeName)).addNumber();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void setCliNode(String nodeName, int number) {
+        try {
+            lock.lock();
+            nodes.get(ZKPaths.makePath(this.servicePath, nodeName)).setNumber(number);
         } finally {
             lock.unlock();
         }

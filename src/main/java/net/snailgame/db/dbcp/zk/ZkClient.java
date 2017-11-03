@@ -9,6 +9,9 @@ import net.snailgame.db.config.ZkDbConfig;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.framework.api.ACLProvider;
+import org.apache.curator.framework.recipes.cache.PathChildrenCache;
+import org.apache.curator.framework.recipes.cache.PathChildrenCacheEvent;
+import org.apache.curator.framework.recipes.cache.PathChildrenCacheListener;
 import org.apache.curator.framework.recipes.cache.TreeCache;
 import org.apache.curator.framework.recipes.cache.TreeCacheEvent;
 import org.apache.curator.framework.recipes.cache.TreeCacheListener;
@@ -59,9 +62,14 @@ public class ZkClient {
             this.servicePath = rootPath + zkDbConfig.getServiceNode();
             this.clientPath = rootPath + zkDbConfig.getClientNode();
             lock = new InterProcessMutex(zkConn, getLockNode());
-            TreeCache cache = getTreeCache(zkDbConfig.getZkUrl(), zkDbConfig.getZkNamespace(), zkDbConfig.getId0(),
-                    zkDbConfig.getId1(), getMycatNodeService(), zkConn, getServicePath());
-            cache.start();
+            // 启动服务端监控
+            PathChildrenCache pathChildrenCache = getpathChildrenCache(zkConn, getServicePath(), true);
+            pathChildrenCache.start();
+            // 启动客户端监控
+            TreeCache treeCache = getTreeCache(zkDbConfig.getZkUrl(), zkDbConfig.getZkNamespace(), zkDbConfig.getId0(),
+                    zkDbConfig.getId1(), getMycatNodeService(), zkConn, getClientPath());
+            treeCache.start();
+
             mycatNodeService.init(userName, this.servicePath, this.clientPath);
         }
     }
@@ -148,10 +156,11 @@ public class ZkClient {
         throw new RuntimeException("failed to connect to zookeeper service : " + url);
     }
 
+    // 用户client端节点的监控
     private static TreeCache getTreeCache(final String url, final String namespace, final String id0, final String id1,
-            final MycatNodeService mycatNodeService, CuratorFramework client, final String path) throws Exception {
-        final TreeCache cached = new TreeCache(client, path);
-        final int pathDeep = path.split(ZKPaths.PATH_SEPARATOR).length;
+            final MycatNodeService mycatNodeService, CuratorFramework client, final String clientPath) throws Exception {
+        final TreeCache cached = new TreeCache(client, clientPath);
+        final int pathDeep = clientPath.split(ZKPaths.PATH_SEPARATOR).length;
         cached.getListenable().addListener(new TreeCacheListener() {
             @Override
             public void childEvent(CuratorFramework client, TreeCacheEvent event) throws Exception {
@@ -165,34 +174,36 @@ public class ZkClient {
                         logger.error("Connection error,waiting...");
                         CloseableUtils.closeQuietly(client);
                         client = buildConnection(url, namespace, id0, id1);
+                        // 客户端节点判断重新注册
+                        String clientRegist = ZKPaths.makePath(mycatNodeService.getConnNow().getClientPath(),
+                                mycatNodeService.getConnNow().getNodeId());
+                        if (client.checkExists().forPath(clientRegist) == null) {
+                            client.create().withMode(CreateMode.EPHEMERAL).forPath(clientRegist);
+                        }
                         break;
                     case NODE_ADDED:
                         int changePathDeep = event.getData().getPath().split(ZKPaths.PATH_SEPARATOR).length;
-                        // 服务端节点增加
-                        if (changePathDeep - pathDeep == 1) {
-                            mycatNodeService.addServiceNode(event.getData().getPath(), event.getData().getData(), event
-                                    .getData().getStat());
-                            // 触发判断是否需要重连
-                            mycatNodeService.setConnMycatInfo(mycatNodeService.getConnNow());
-                        } else if (changePathDeep - pathDeep == 2) {
+                        if (changePathDeep - pathDeep == 2) {
                             // 客户端注册，不需要判断是否需要重连，因为客户端启动的时候已经判断过了
                             PathAndNode pathAndNode = ZKPaths.getPathAndNode(event.getData().getPath());
-                            mycatNodeService.addClientNode(pathAndNode.getNode(), event.getData().getData(), event
-                                    .getData().getStat());
+                            // 获取对应的客户端数
+                            List<String> childsList = client.getChildren().forPath(pathAndNode.getPath());
+                            mycatNodeService.setCliNode(pathAndNode.getNode(),
+                                    childsList == null ? 0 : childsList.size());
                         }
                         break;
                     case NODE_UPDATED:
-                        // 节点更新后对比下信息，或者重新初始化节点信息？
+                        logger.debug(event);
                         break;
                     case NODE_REMOVED:
                         int removePathDeep = event.getData().getPath().split(ZKPaths.PATH_SEPARATOR).length;
-                        // 服务端节点丢失，不需要判断，全节点都掉了
-                        if (removePathDeep - pathDeep == 1) {
-                            mycatNodeService.removeService(event.getData().getPath());
-                        } else if (removePathDeep - pathDeep == 2) {
+                        if (removePathDeep - pathDeep == 2) {
                             // 客户端停止
                             PathAndNode pathAndNode = ZKPaths.getPathAndNode(event.getData().getPath());
-                            mycatNodeService.removeClient(pathAndNode.getNode());
+                            // 获取对应的客户端数
+                            List<String> childsList = client.getChildren().forPath(pathAndNode.getPath());
+                            mycatNodeService.setCliNode(pathAndNode.getNode(),
+                                    childsList == null ? 0 : childsList.size());
                             // 触发判断是否需要重连
                             mycatNodeService.setConnMycatInfo(mycatNodeService.getConnNow());
                         }
@@ -204,6 +215,46 @@ public class ZkClient {
         });
         return cached;
     }
+
+    // 用户服务端节点的监控
+    public PathChildrenCache getpathChildrenCache(CuratorFramework client, String path, Boolean cacheData)
+            throws Exception {
+        final PathChildrenCache cached = new PathChildrenCache(client, path, cacheData);
+        cached.getListenable().addListener(new PathChildrenCacheListener() {
+            @Override
+            public void childEvent(CuratorFramework client, PathChildrenCacheEvent event) throws Exception {
+                PathChildrenCacheEvent.Type eventType = event.getType();
+                switch (eventType) {
+                    case CONNECTION_RECONNECTED:
+                        cached.rebuild();
+                        break;
+                    case CONNECTION_SUSPENDED:
+                        break;
+                    case CONNECTION_LOST:
+                        System.out.println("Connection error,waiting...");
+                        break;
+                    case CHILD_ADDED:
+                        // 服务端节点增加
+                        mycatNodeService.addMycatNode(event.getData().getPath(), event.getData().getData(), null);
+                        // 触发判断是否需要重连
+                        mycatNodeService.setConnMycatInfo(mycatNodeService.getConnNow());
+                        break;
+                    case CHILD_UPDATED:
+                        logger.debug(event);
+                        break;
+                    case CHILD_REMOVED:
+                        // 服务端节点丢失，不需要判断，全节点都掉了
+                        mycatNodeService.removeMycatNode(event.getData().getPath());
+                        break;
+                    default:
+                        logger.debug("PathChildrenCache changed : {path:" + event.getData().getPath() + " data:"
+                                + new String(event.getData().getData()) + "}");
+                }
+            }
+        });
+        return cached;
+    }
+
 
     public static void main(String[] args) {
         String a = "/a/b/c";

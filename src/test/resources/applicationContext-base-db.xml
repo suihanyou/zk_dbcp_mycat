@@ -7,26 +7,26 @@
        http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-3.0.xsd
        http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-3.0.xsd">
 
-	<bean id="zkDbConfig" class="net.snailgame.db.config.ZkDbConfig" depends-on="dataSourceTemplate">
-		<property name="lockNode" value="lockNode" />
+	<bean id="zkDbConfig" class="net.snailgame.db.config.ZkDbConfig">
+		<property name="mycatCluster" value="mycat-cluster-1" />
+		<property name="serviceNode" value="/register" />
+		<property name="lockNode" value="/lockNode" />
+		<property name="clientNode" value="/client" />
 		<property name="zkUrl"
 			value="170.1.1.146:2181,170.1.1.147:2181,170.1.1.179:2181" />
-		<property name="dbName" value="ocs" />
 		<property name="zkNamespace" value="mycat" />
 		<property name="id0" value="wang" />
 		<property name="id1" value="yang" />
-		<property name="registNode" value="register" />
 		<property name="postfix"
-			value="?autoReconnect=true&amp;failOverReadOnly=false&amp;maxReconnects=5&amp;useUnicode=true&amp;characterEncoding=UTF-8" />
+			value="/ocs?autoReconnect=true&amp;failOverReadOnly=false&amp;maxReconnects=5&amp;useUnicode=true&amp;characterEncoding=UTF-8" />
 		<property name="reConnectSkipTime" value="1800000" />
 		<property name="checkSkipTime" value="300000" />
-		<property name="mycatCluster" value="mycat-cluster-1" />
 	</bean>
-
 
 	<bean id="dataSourceTemplate" class="org.apache.commons.dbcp.BasicDataSource"
 		destroy-method="close" lazy-init="false">
 		<property name="driverClassName" value="com.mysql.jdbc.Driver" />
+		<property name="username" value="ocs" />
 		<property name="defaultAutoCommit" value="false" />
 		<property name="poolPreparedStatements" value="true" />
 		<!-- 连接池启动时的初始值 -->
@@ -48,14 +48,8 @@
 		<property name="validationQueryTimeout" value="5" />
 	</bean>
 
-
-	<bean id="zookeeperDataSource" class="net.snailgame.db.dbcp.zk.ZookeeperDataSource"
-		lazy-init="false" depends-on="zkDbConfig">
-		<property name="dataSourceTemplate" ref="dataSourceTemplate" />
-		<property name="zkDbConfig" ref="zkDbConfig" />
-	</bean>
-	
-	<bean id="confSeqDao" class="net.snailgame.db.dbcp.test.dao.impl.ConfSeqDaoImpl" depends-on="zookeeperDataSource"/>
+	<bean id="zookeeperDataSource" class="net.snailgame.db.dbcp.zk.ZkDataSource" />
+	<bean id="confSeqDao" class="net.snailgame.db.dbcp.test.dao.impl.ConfSeqDaoImpl" />
 
 	<!-- ================================事务相关控制================================================= -->
 	<bean name="transactionManager"

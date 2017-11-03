@@ -40,8 +40,13 @@ public class MycatNodeVo {
         this.rate = (float) this.number / this.weight;
     }
 
-    public synchronized void lessNumber() {
+    public void lessNumber() {
         this.number--;
+        this.rate = (float) this.number / this.weight;
+    }
+
+    public void addNumber() {
+        this.number++;
         this.rate = (float) this.number / this.weight;
     }
 
