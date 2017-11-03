@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:aop="http://www.springframework.org/schema/aop" xmlns:tx="http://www.springframework.org/schema/tx"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-3.0.xsd
+       http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-3.0.xsd
+       http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop-3.0.xsd
+       http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-3.0.xsd">
+
+	<bean id="zkDbConfig" class="net.snailgame.db.config.ZkDbConfig"
+		depends-on="dataSourceTemplate">
+		<property name="mycatCluster" value="mycat-cluster-1" />
+		<property name="serviceNode" value="/register" />
+		<property name="lockNode" value="/lockNode" />
+		<property name="clientNode" value="/client" />
+		<property name="zkUrl"
+			value="170.1.1.146:2181,170.1.1.147:2181,170.1.1.179:2181" />
+		<property name="zkNamespace" value="mycat" />
+		<property name="id0" value="wang" />
+		<property name="id1" value="yang" />
+
+		<property name="postfix"
+			value="/ocs?autoReconnect=true&amp;failOverReadOnly=false&amp;maxReconnects=5&amp;useUnicode=true&amp;characterEncoding=UTF-8" />
+		<property name="reConnectSkipTime" value="1800000" />
+		<property name="checkSkipTime" value="300000" />
+	</bean>
+
+
+	<bean id="dataSourceTemplate" class="org.apache.commons.dbcp.BasicDataSource"
+		destroy-method="close" lazy-init="false">
+		<property name="driverClassName" value="com.mysql.jdbc.Driver" />
+		<property name="username" value="ocs" />
+		<property name="defaultAutoCommit" value="false" />
+		<property name="poolPreparedStatements" value="true" />
+		<!-- 连接池启动时的初始值 -->
+		<property name="initialSize" value="5" />
+		<!-- 连接池的最大值 -->
+		<property name="maxActive" value="300" />
+		<!-- 最大空闲值.当经过一个高峰时间后，连接池可以慢慢将已经用不到的连接慢慢释放一部分，一直减少到maxIdle为止 -->
+		<property name="maxIdle" value="2" />
+		<!-- 最小空闲值.当空闲的连接数少于阀值时，连接池就会预申请去一些连接，以免洪峰来时来不及申请 -->
+		<property name="minIdle" value="1" />
+		<!-- 指明连接是否被空闲连接回收器(如果有)进行检验.如果检测失败,则连接将被从池中去除. -->
+		<property name="testWhileIdle" value="true" />
+		<property name="validationQuery" value="SELECT 1" />
+		<!-- 在空闲连接回收器线程运行期间休眠的时间值,以毫秒为单位. -->
+		<property name="timeBetweenEvictionRunsMillis" value="10000" />
+		<!--removeAbandoned: 是否自动回收超时连接 -->
+		<property name="removeAbandoned" value="true" />
+		<property name="numTestsPerEvictionRun" value="300" />
+		<property name="validationQueryTimeout" value="5" />
+	</bean>
+
+
+	<bean id="zookeeperDataSource" class="net.snailgame.db.dbcp.zk.ZkDataSource"
+		lazy-init="false" />
+
+	<bean id="confSeqDao" class="net.snailgame.db.dbcp.test.dao.impl.ConfSeqDaoImpl"
+		depends-on="zookeeperDataSource" />
+
+	<!-- ================================事务相关控制================================================= -->
+	<bean name="transactionManager"
+		class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+		<property name="dataSource" ref="zookeeperDataSource"></property>
+	</bean>
+
+	<tx:advice id="userTxAdvice" transaction-manager="transactionManager">
+		<tx:attributes>
+			<tx:method name="find*" propagation="NOT_SUPPORTED" />
+			<tx:method name="get*" propagation="NOT_SUPPORTED" />
+			<tx:method name="select*" propagation="NOT_SUPPORTED" />
+			<tx:method name="query*" propagation="NOT_SUPPORTED" />
+
+			<tx:method name="*" propagation="REQUIRED" read-only="false"
+				rollback-for="java.lang.RuntimeException" />
+		</tx:attributes>
+	</tx:advice>
+
+	<aop:config>
+		<aop:pointcut id="pc"
+			expression="execution( * net.snailgame.inter.service.*.*Service*.*(..)))" /> <!--把事务控制在Service层 -->
+		<aop:advisor pointcut-ref="pc" advice-ref="userTxAdvice" />
+	</aop:config>
+
+	<bean class="org.mybatis.spring.SqlSessionTemplate" id="sqlSession">
+		<!-- 第一个参数是 sqlSessionFactory -->
+		<constructor-arg ref="sqlSessionFactory" index="0" />
+		<!-- 第二个参数是 ExecutorType -->
+		<!-- <constructor-arg value="BATCH" index="1" /> -->
+	</bean>
+
+	<!-- myibatis -->
+	<bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+		<property name="dataSource" ref="zookeeperDataSource" />
+		<property name="configLocation" value="classpath:mybatis-config-sectionno.xml" />
+	</bean>
+</beans>

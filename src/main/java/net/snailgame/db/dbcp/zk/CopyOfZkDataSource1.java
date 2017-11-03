@@ -6,34 +6,39 @@ import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.util.List;
 
+import javax.sql.DataSource;
+
 import net.snailgame.db.config.ZkDbConfig;
 import net.snailgame.db.dbcp.vo.ConnMycatInfoVo;
 
 import org.apache.commons.dbcp.BasicDataSource;
+import org.apache.curator.utils.ZKPaths;
+import org.apache.ibatis.transaction.Transaction;
 import org.apache.log4j.Logger;
+import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.data.Stat;
-
-import javax.annotation.PostConstruct;
-import javax.sql.DataSource;
-
 import org.springframework.beans.BeanUtils;
+import org.springframework.beans.BeansException;
+import org.springframework.beans.FatalBeanException;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
+import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 
 /**
  * <p>
- * Title: SnailZookeeperDataSource.java<／p>
+ * Title: ZkDataSource.java<／p>
  * <p>
- * Description: 通过zookeeper获取数据库连接信息并连接<／p>
+ * Description: <／p>
  * <p>
- * Copyright: Copyright (c) 2016<／p>
+ * Copyright: Copyright (c) 2017<／p>
  * 
  * @author Shy
- * @date 2016年1月11日
+ * @date 2017年11月2日
  * @version 1.0
- * 
  */
-
-public class ZookeeperDataSource implements DataSource {
-    private static final Logger logger = Logger.getLogger(ZookeeperDataSource.class);
+public class CopyOfZkDataSource1 implements DataSource, BeanFactoryPostProcessor {
+    private static final Logger logger = Logger.getLogger(CopyOfZkDataSource1.class);
 
     private ZkDbConfig zkDbConfig;
     private volatile DataSource dataSource;
@@ -43,24 +48,49 @@ public class ZookeeperDataSource implements DataSource {
 
     private long lastConnTime = 0; // 上次重连时间
 
-    @PostConstruct
-    public synchronized void init() throws Exception {
-        zkClient = new ZkClient(zkDbConfig);
+
+    @Override
+    public void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) throws BeansException {
+        dataSourceTemplate = beanFactory.getBean(BasicDataSource.class);
+        if (dataSourceTemplate == null) {
+            throw new NoSuchBeanDefinitionException(BasicDataSource.class);
+        }
+        zkDbConfig = beanFactory.getBean(ZkDbConfig.class);
+        if (zkDbConfig == null) {
+            throw new NoSuchBeanDefinitionException(ZkDbConfig.class);
+        }
+        if (dataSourceTemplate.getUsername() == null) {
+            throw new FatalBeanException("初始化数据库节点失败，数据库用户名为空");
+        }
+        try {
+            init(dataSourceTemplate.getUsername());
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw new FatalBeanException("从zk上初始化mycat节点失败");
+        }
+        DataSourceTransactionManager transaction = beanFactory.getBean(DataSourceTransactionManager.class);
+        beanFactory.destroyBean(dataSourceTemplate);
+        transaction.setDataSource(this.dataSource);
+        transaction.afterPropertiesSet();
+    }
+
+    public synchronized void init(String userName) throws Exception {
+        zkClient = new ZkClient(userName, zkDbConfig);
         setMycatNodeService(zkClient.getMycatNodeService());
         try {
+            Stat stat = new Stat();
             zkClient.tryLock();
             // 从zk上初始化mycat节点信息
-            List<String> nodes = zkClient.getChildren(zkDbConfig.getRegistNode());
+            List<String> nodes = zkClient.getChildren(zkClient.getServicePath());
             if (nodes == null || nodes.size() == 0) {
-                throw new RuntimeException("节点：" + zkDbConfig.getRegistNode() + "没有找到已注册的数据库服务");
-            }
-            Stat stat = new Stat();
-            for (String node : nodes) {
-                getMycatNodeService().addClientNode(node, zkClient.getDataAndStat(node, stat), stat);
+                throw new RuntimeException("节点：" + zkDbConfig.getServiceNode() + "没有找到已注册的数据库服务");
             }
 
-            // 初始化mycat节点服务
-            getMycatNodeService().init(zkDbConfig.getDbName());
+            for (String node : nodes) {
+                String tempPath = ZKPaths.makePath(zkClient.getServicePath(), node);
+                getMycatNodeService().addClientNode(tempPath, zkClient.getDataAndStat(tempPath, stat), stat);
+            }
+
             if (!getMycatNodeService().setConnMycatInfo(null)) {
                 throw new RuntimeException("初始化mycat注册信息失败");
             }
@@ -69,15 +99,13 @@ public class ZookeeperDataSource implements DataSource {
             zkClient.unLock();
         }
 
-        new MonitorThread(this).start();
+        MonitorThread monitorThread = new MonitorThread(this);
+        monitorThread.setDaemon(true);
+        monitorThread.start();
     }
 
     public void setDataSource(DataSource dataSource) {
         this.dataSource = dataSource;
-    }
-
-    public void setDataSourceTemplate(BasicDataSource template) {
-        this.dataSourceTemplate = template;
     }
 
     private static long checkReconn(long lastConnTime, long skipTime) {
@@ -85,19 +113,19 @@ public class ZookeeperDataSource implements DataSource {
     }
 
     public class MonitorThread extends Thread {
-        private ZookeeperDataSource snailZookeeperDataSource;
+        private CopyOfZkDataSource1 zkDataSource;
 
-        public MonitorThread(ZookeeperDataSource snailZookeeperDataSource) {
-            this.snailZookeeperDataSource = snailZookeeperDataSource;
+        public MonitorThread(CopyOfZkDataSource1 zkDataSource) {
+            this.zkDataSource = zkDataSource;
         }
 
         @Override
         public void run() {
             while (true) {
-                if (snailZookeeperDataSource.getMycatNodeService().isNeedReconn()
+                if (zkDataSource.getMycatNodeService().isNeedReconn()
                         && checkReconn(lastConnTime, zkDbConfig.getReConnectSkipTime()) > 0) {
                     try {
-                        snailZookeeperDataSource.doReConnect(snailZookeeperDataSource.getMycatNodeService());
+                        zkDataSource.doReConnect(zkDataSource.getMycatNodeService());
                     } catch (Exception e) {
                         e.printStackTrace();
                     }
@@ -114,25 +142,37 @@ public class ZookeeperDataSource implements DataSource {
 
     // 重连
     private void doReConnect(MycatNodeService mycatNodeService) throws Exception {
-        // 重连的时候一个一个判断，防止潮汐乱迁移
-        ConnMycatInfoVo connNow = mycatNodeService.getConnNow();
-        ConnMycatInfoVo connNext = mycatNodeService.getConnNext();
-        logger.info("SnailZookeeperDataSource::doReConnect::nodeNow=[" + connNow == null ? "null" : connNow.getUrl()
-                + "]" + "::nodeNex=[" + connNext == null ? "null" : connNow.getUrl() + "]");
-        BasicDataSource dataSource = new BasicDataSource();
-        BeanUtils.copyProperties(dataSourceTemplate, dataSource, "logWriter", "loginTimeout");
-        setDbUrl(dataSource, connNext.getUrl());
-        dataSource.setPassword(connNext.getPasswd());
-        dataSource.setUsername(connNext.getUserName());
-        if (this.dataSource != null) {
-            ((BasicDataSource) this.dataSource).close();
+        if (mycatNodeService.isNeedReconn()) {
+            // 重连的时候一个一个判断，防止潮汐乱迁移
+            ConnMycatInfoVo connNow = mycatNodeService.getConnNow();
+            ConnMycatInfoVo connNext = mycatNodeService.getConnNext();
+
+            BasicDataSource dataSource = new BasicDataSource();
+            BeanUtils.copyProperties(dataSourceTemplate, dataSource, "logWriter", "loginTimeout");
+            setDbUrl(dataSource, connNext.getUrl());
+            dataSource.setPassword(connNext.getPasswd());
+            dataSource.setUsername(connNext.getUserName());
+            if (this.dataSource != null) {
+                ((BasicDataSource) this.dataSource).close();
+            }
+
+            this.dataSource = dataSource;
+
+            /*try {
+                // 注册到选好的mycat 服务下
+                zkClient.createNode(connNext.getClientPath(), CreateMode.EPHEMERAL);
+                if (connNow != null) {
+                    zkClient.deleteNode(connNow.getClientPath());
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }*/
+
+            mycatNodeService.reset();
+            lastConnTime = System.currentTimeMillis(); // 重连完成记录上次重连时间
+
+            logger.debug("SnailZookeeperDataSource::doReConnect::end");
         }
-        this.dataSource = dataSource;
-        mycatNodeService.reset();
-
-        lastConnTime = System.currentTimeMillis(); // 重连完成记录上次重连时间
-
-        logger.debug("SnailZookeeperDataSource::doReConnect::end");
     }
 
     public void setDbUrl(BasicDataSource dataSource, String addr) {
@@ -159,8 +199,6 @@ public class ZookeeperDataSource implements DataSource {
         StringBuilder builder = new StringBuilder();
         builder.append(prefix);
         builder.append(addr);
-        builder.append("/");
-        builder.append(getMycatNodeService().getDbName());
         builder.append(zkDbConfig.getPostfix());
 
         return builder.toString();
@@ -210,6 +248,7 @@ public class ZookeeperDataSource implements DataSource {
         } catch (Exception e) {
             logger.error(e.getMessage());
             try {
+                this.getMycatNodeService().addBadNodeNow();
                 doReConnect(this.getMycatNodeService());
             } catch (Exception e1) {
                 e1.printStackTrace();
@@ -232,7 +271,7 @@ public class ZookeeperDataSource implements DataSource {
         return zkDbConfig;
     }
 
-    public void setZkDbConfig(ZkDbConfig zkDbConfig) {
+    public void setZkDbConfig(ZkDbConfig zkDbConfig) throws Exception {
         this.zkDbConfig = zkDbConfig;
     }
 

@@ -1,9 +1,12 @@
 package net.snailgame.db.dbcp.zk;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantLock;
 
+import org.apache.curator.utils.ZKPaths;
 import org.apache.zookeeper.data.Stat;
 
 import net.snailgame.db.util.FastJSONUtils;
@@ -25,109 +28,130 @@ import net.snailgame.db.dbcp.vo.MycatNodeVo;
  * @version 1.0
  */
 public class MycatNodeService {
-    private Map<String, MycatNodeVo> nodes; // 当前注册的节点集合
-    private Set<String> badNodes; // 坏节点集合
-    private String dbName;
+    private static Map<String, MycatNodeVo> nodes = new HashMap<String, MycatNodeVo>(); // 当前注册的节点集合
+    private static Set<String> badNodes = new HashSet<String>(); // 坏节点集合
+    private String userName;
     private ConnMycatInfoVo connNow;
     private ConnMycatInfoVo connNext;
     private boolean needReconn = false; // 是否需要重连
+    private ReentrantLock lock = new ReentrantLock();
+    // private String servicePath;
+    private String clientPath;
 
-    public void init(String dbName) {
-        this.dbName = dbName;
-        this.badNodes = new HashSet<String>();
+    public void init(String userName, String servicePath, String clientPath) {
+        this.userName = userName;
+        // this.servicePath = servicePath;
+        this.clientPath = clientPath;
     }
 
     public void reset() {
-        setNeedReconn(false);
-        setConnNow(connNext);
-        setConnNext(null);
+        try {
+            lock.lock();
+            setNeedReconn(false);
+            setConnNow(connNext);
+            setConnNext(null);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public boolean setConnMycatInfo(ConnMycatInfoVo connNow) {
-        String temp = null;
-        float rate = 100.0f;
-        if (connNow != null) {
-            temp = connNow.getPath();
-        }
+        try {
+            lock.lock();
+            String serviceTemp = null;
+            String clientTemp = null;
+            float rate = 100.0f;
+            if (connNow != null) {
+                serviceTemp = connNow.getServicePath();
+                clientTemp = connNow.getClientPath();
+            }
 
-        for (String key : nodes.keySet()) {
-            // 跳过坏了的节点
-            if (getBadNodes().contains(key)) {
-                continue;
+            for (String key : nodes.keySet()) {
+                // 跳过坏了的节点
+                if (getBadNodes().contains(key)) {
+                    continue;
+                }
+                // 大于两个节点的差值才有比较换节点
+                if (rate > (nodes.get(key).getRate() + (float) 2 / nodes.get(key).getWeight())) {
+                    serviceTemp = key;
+
+                    clientTemp = ZKPaths.makePath(clientPath, ZKPaths.getNodeFromPath(key));
+                    rate = nodes.get(key).getRate();
+                }
             }
-            // 大于两个节点的差值才有比较换节点
-            if (rate > (nodes.get(key).getRate() + (float) 2 / nodes.get(key).getWeight())) {
-                temp = key;
-                rate = nodes.get(key).getRate();
-            }
-        }
-        // 找到了下个需要连接的节点
-        if (temp != null) {
-            connNext = new ConnMycatInfoVo(temp, nodes.get(temp), getDbName());
-            if (connNow == null) {
-                setNeedReconn(true);
-            } else if (!connNext.getPath().equals(connNow.getPath())) {
-                // 如果下个需要连接的节点不是当前节点
-                setNeedReconn(true);
+            // 找到了下个需要连接的节点
+            if (serviceTemp != null) {
+                connNext = new ConnMycatInfoVo(serviceTemp, clientTemp, nodes.get(serviceTemp), getUserName());
+                if (connNow == null) {
+                    setNeedReconn(true);
+                } else if (!connNext.getServicePath().equals(connNow.getServicePath())) {
+                    // 如果下个需要连接的节点不是当前节点
+                    setNeedReconn(true);
+                } else {
+                    // 没有换节点，不需要重连
+                    connNext = null;
+                    setNeedReconn(false);
+                }
+                return true;
             } else {
-                // 没有换节点，不需要重连
-                connNext = null;
-                setNeedReconn(false);
+                // 查找数据库失败
+                return false;
             }
-            return true;
-        } else {
-            // 查找数据库失败
-            return false;
+        } finally {
+            lock.unlock();
         }
     }
 
     public void removeService(String path) {
-        nodes.remove(path);
-        getBadNodes().remove(path);
-        if (path.equals(getConnNow().getPath()))
-            setConnMycatInfo(null);
+        try {
+            lock.lock();
+            nodes.remove(path);
+            getBadNodes().remove(path);
+            if (path.equals(getConnNow().getServicePath()))
+                setConnMycatInfo(null);
+        } finally {
+            lock.unlock();
+        }
     }
 
     public void removeClient(String path) {
-        nodes.get(path).lessNumber();
+        try {
+            lock.lock();
+            nodes.get(path).lessNumber();
+        } finally {
+            lock.unlock();
+        }
     }
 
     public void addServiceNode(String path, byte[] nodeInfo, Stat stat) {
-        MycatNodeVo mycatNodeVO = FastJSONUtils.toBeanFromByteArray(nodeInfo, MycatNodeVo.class);
-        if (!mycatNodeVO.getUsers().containsKey(getDbName())) {
-            throw new RuntimeException("节点：" + path + "未能获取数据库：" + getDbName() + "的配置，请检查datebaseName");
-        }
-        mycatNodeVO.setNumber(stat.getNumChildren()); // 客户端的节点个数
-        nodes.put(path, mycatNodeVO);
+        try {
+            lock.lock();
+            MycatNodeVo mycatNodeVO = FastJSONUtils.toBeanFromByteArray(nodeInfo, MycatNodeVo.class);
+            if (!mycatNodeVO.getUsers().containsKey(getUserName())) {
+                throw new RuntimeException("节点：" + path + "未能获取数据库：" + getUserName() + "的配置，请检查datebaseName");
+            }
+            mycatNodeVO.setNumber(stat.getNumChildren()); // 客户端的节点个数
+            nodes.put(path, mycatNodeVO);
 
-        if (getBadNodes().contains(path)) {
-            getBadNodes().remove(path);
+            if (getBadNodes().contains(path)) {
+                getBadNodes().remove(path);
+            }
+        } finally {
+            lock.unlock();
         }
     }
 
     public void addClientNode(String path, byte[] nodeInfo, Stat stat) {
-        if (nodes.get(path) == null) {
-            addServiceNode(path, nodeInfo, stat);
-        } else {
-            nodes.get(path).setNumber(stat.getNumChildren());
+        try {
+            lock.lock();
+            if (nodes.get(path) == null) {
+                addServiceNode(path, nodeInfo, stat);
+            } else {
+                nodes.get(path).setNumber(stat.getNumChildren());
+            }
+        } finally {
+            lock.unlock();
         }
-    }
-
-    public void addMycatNode(String path, byte[] nodeInfo, int number) {
-        MycatNodeVo mycatNodeVO = FastJSONUtils.toBeanFromByteArray(nodeInfo, MycatNodeVo.class);
-        if (!mycatNodeVO.getUsers().containsKey(getDbName())) {
-            throw new RuntimeException("节点：" + path + "未能获取数据库：" + getDbName() + "的配置，请检查datebaseName");
-        }
-        mycatNodeVO.setNumber(number); // 客户端的节点个数
-        nodes.put(path, mycatNodeVO);
-
-        if (getBadNodes().contains(path)) {
-            getBadNodes().remove(path);
-        }
-    }
-
-    public String getDbName() {
-        return dbName;
     }
 
     public ConnMycatInfoVo getConnNow() {
@@ -138,7 +162,7 @@ public class MycatNodeService {
         return needReconn;
     }
 
-    public void setNeedReconn(boolean needReconn) {
+    private void setNeedReconn(boolean needReconn) {
         this.needReconn = needReconn;
     }
 
@@ -146,20 +170,24 @@ public class MycatNodeService {
         return connNext;
     }
 
-    public void setConnNext(ConnMycatInfoVo connNext) {
+    private void setConnNext(ConnMycatInfoVo connNext) {
         this.connNext = connNext;
     }
 
-    public Set<String> getBadNodes() {
+    private Set<String> getBadNodes() {
         return badNodes;
     }
 
-    public void addBadNodes(String badNode) {
-        this.badNodes.add(badNode);
+    public void addBadNodeNow() {
+        badNodes.add(connNow.getServicePath());
     }
 
-    public void setConnNow(ConnMycatInfoVo connNow) {
+    private void setConnNow(ConnMycatInfoVo connNow) {
         this.connNow = connNow;
+    }
+
+    private String getUserName() {
+        return userName;
     }
 
 }

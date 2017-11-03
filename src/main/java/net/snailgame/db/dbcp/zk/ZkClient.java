@@ -2,7 +2,6 @@ package net.snailgame.db.dbcp.zk;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import net.snailgame.db.config.ZkDbConfig;
@@ -19,6 +18,7 @@ import org.apache.curator.utils.CloseableUtils;
 import org.apache.curator.utils.ZKPaths;
 import org.apache.curator.utils.ZKPaths.PathAndNode;
 import org.apache.log4j.Logger;
+import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.ZooDefs.Perms;
 import org.apache.zookeeper.data.ACL;
@@ -44,25 +44,34 @@ public class ZkClient {
     private CuratorFramework zkConn = null;
     private String lockNode = null;
     private InterProcessMutex lock;
-    private CountDownLatch countdown = new CountDownLatch(1);
     private final MycatNodeService mycatNodeService = new MycatNodeService();
+    private String rootPath;
+    private String servicePath;
+    private String clientPath;
 
 
-    public ZkClient(ZkDbConfig zkDbConfig) throws Exception {
+    public ZkClient(String userName, ZkDbConfig zkDbConfig) throws Exception {
         if (zkConn == null) {
             zkConn = buildConnection(zkDbConfig.getZkUrl(), zkDbConfig.getZkNamespace(), zkDbConfig.getId0(),
                     zkDbConfig.getId1());
-            this.lockNode = zkDbConfig.getLockNode();
-            lock = new InterProcessMutex(zkConn, lockNode);
-
+            rootPath = ZKPaths.PATH_SEPARATOR + zkDbConfig.getMycatCluster();
+            this.lockNode = rootPath + zkDbConfig.getLockNode();
+            this.servicePath = rootPath + zkDbConfig.getServiceNode();
+            this.clientPath = rootPath + zkDbConfig.getClientNode();
+            lock = new InterProcessMutex(zkConn, getLockNode());
             TreeCache cache = getTreeCache(zkDbConfig.getZkUrl(), zkDbConfig.getZkNamespace(), zkDbConfig.getId0(),
-                    zkDbConfig.getId1(), getMycatNodeService(), zkConn, zkDbConfig.getRegistNode());
+                    zkDbConfig.getId1(), getMycatNodeService(), zkConn, getServicePath());
             cache.start();
+            mycatNodeService.init(userName, this.servicePath, this.clientPath);
         }
     }
 
     public List<String> getChildren(String path) throws Exception {
         return zkConn.getChildren().forPath(path);
+    }
+
+    public List<String> getChildrenAndStat(String path, Stat stat) throws Exception {
+        return zkConn.getChildren().storingStatIn(stat).forPath(path);
     }
 
     public byte[] getDataAndStat(String path, Stat stat) throws Exception {
@@ -73,21 +82,28 @@ public class ZkClient {
         return zkConn.getData().forPath(path);
     }
 
+    public void createNode(String path, CreateMode createMode) throws Exception {
+        zkConn.create().withMode(createMode).forPath(path);
+    }
+
+    public void deleteNode(String path) throws Exception {
+        zkConn.delete().inBackground().forPath(path);
+    }
+
     public void updateNodeDate(String path, String data) throws Exception {
         zkConn.setData().forPath(path, data.getBytes());
     }
 
     // 尝试获取分布式锁
     public void tryLock() throws Exception {
-        countdown.await();
         lock.acquire();
     }
 
     public void unLock() {
         try {
             // 释放
-            lock.release();
-            countdown.countDown();
+            if (lock.isAcquiredInThisProcess())
+                lock.release();
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -196,5 +212,17 @@ public class ZkClient {
 
     public MycatNodeService getMycatNodeService() {
         return mycatNodeService;
+    }
+
+    public String getLockNode() {
+        return lockNode;
+    }
+
+    public String getClientPath() {
+        return clientPath;
+    }
+
+    public String getServicePath() {
+        return servicePath;
     }
 }

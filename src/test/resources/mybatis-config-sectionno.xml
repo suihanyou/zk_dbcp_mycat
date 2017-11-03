@@ -8,7 +8,7 @@
 		<setting name="cacheEnabled" value="false" />
 	</settings>
 	<typeAliases>
-		<typeAlias type="net.snailgame.ocs.base.db.po.ConfSeq"
+		<typeAlias type="net.snailgame.db.dbcp.test.po.ConfSeq"
 			alias="confSeq" />
 	</typeAliases>
 	<mappers>

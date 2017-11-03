@@ -15,16 +15,18 @@ package net.snailgame.db.dbcp.vo;
  * @version 1.0
  */
 public class ConnMycatInfoVo {
-    private String path;
+    private String servicePath;
+    private String clientPath;
     private String url;
     private String userName;
     private String passwd;
 
-    public ConnMycatInfoVo(String path, MycatNodeVo vo, String dbName) {
+    public ConnMycatInfoVo(String servicePath, String clientPath, MycatNodeVo vo, String userName) {
         this.url = vo.getUrl();
-        this.path = path;
-        this.passwd = vo.getUsers().get(dbName).getPasswd();
-        this.userName = vo.getUsers().get(dbName).getUserName();
+        this.setServicePath(servicePath);
+        this.setClientPath(clientPath);
+        this.passwd = vo.getUsers().get(userName).getPasswd();
+        this.userName = vo.getUsers().get(userName).getUserName();
     }
 
     public String getUserName() {
@@ -51,11 +53,19 @@ public class ConnMycatInfoVo {
         this.url = url;
     }
 
-    public String getPath() {
-        return path;
+    public String getServicePath() {
+        return servicePath;
     }
 
-    public void setPath(String path) {
-        this.path = path;
+    public void setServicePath(String servicePath) {
+        this.servicePath = servicePath;
+    }
+
+    public String getClientPath() {
+        return clientPath;
+    }
+
+    public void setClientPath(String clientPath) {
+        this.clientPath = clientPath;
     }
 }

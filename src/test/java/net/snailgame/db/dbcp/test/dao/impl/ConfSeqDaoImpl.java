@@ -30,31 +30,31 @@ public class ConfSeqDaoImpl extends SqlSessionDaoSupport implements ConfSeqDao {
 
     @Override
     public ConfSeq getConfSeqByName(String seqName) {
-        return getSqlSession().selectOne("net.snailgame.inter.po.ConfSeq.getSeqMapByName", seqName);
+        return getSqlSession().selectOne("net.snailgame.db.dbcp.test.po.ConfSeq.getSeqMapByName", seqName);
     }
 
     @Override
     public int insert(ConfSeq confSeq) {
-        return getSqlSession().insert("net.snailgame.inter.po.ConfSeq.insert", confSeq);
+        return getSqlSession().insert("net.snailgame.db.dbcp.test.po.ConfSeq.insert", confSeq);
     }
 
     @Override
     public int updateStepUp(ConfSeq confSeq) {
-        return getSqlSession().update("net.snailgame.inter.po.ConfSeq.updateStepUp", confSeq);
+        return getSqlSession().update("net.snailgame.db.dbcp.test.po.ConfSeq.updateStepUp", confSeq);
     }
 
     @Override
     public int updateStepUpByName(String seqName) {
-        return getSqlSession().update("net.snailgame.inter.po.ConfSeq.updateStepUpByName", seqName);
+        return getSqlSession().update("net.snailgame.db.dbcp.test.po.ConfSeq.updateStepUpByName", seqName);
     }
 
     @Override
     public List<ConfSeq> getAllConfSeqs() {
-        return getSqlSession().selectList("net.snailgame.inter.po.ConfSeq.getAllConfSeqs");
+        return getSqlSession().selectList("net.snailgame.db.dbcp.test.po.ConfSeq.getAllConfSeqs");
     }
 
     @Override
     public int updateAllConfStepUp() {
-        return getSqlSession().update("net.snailgame.inter.po.ConfSeq.updateAllConfStepUp");
+        return getSqlSession().update("net.snailgame.db.dbcp.test.po.ConfSeq.updateAllConfStepUp");
     }
 }

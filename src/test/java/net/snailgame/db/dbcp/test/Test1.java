@@ -25,17 +25,17 @@ import org.springframework.context.support.FileSystemXmlApplicationContext;
  * @version 1.0
  */
 public class Test1 {
-    public static ConfSeqDao confSeqDao;
+    public ConfSeqDao confSeqDao;
 
     @Before
-    public static void init() {
+    public void init() {
         try {
             @SuppressWarnings("unused")
             ApplicationContext context = null;
             if (System.getProperty("file.separator").equals("\\")) {
-                context = new FileSystemXmlApplicationContext("src/main/resources/applicationContext-base-db.xml");
+                context = new FileSystemXmlApplicationContext("src/test/resources/applicationContext-base-db1.xml");
             } else {
-                context = new FileSystemXmlApplicationContext("src/main/resources/applicationContext-base-db.xml");
+                context = new FileSystemXmlApplicationContext("src/test/resources/applicationContext-base-db1.xml");
             }
             confSeqDao = context.getBean(ConfSeqDao.class);
 

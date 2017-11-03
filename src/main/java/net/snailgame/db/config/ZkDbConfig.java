@@ -16,15 +16,16 @@ package net.snailgame.db.config;
  */
 public class ZkDbConfig {
     private String lockNode;
+    private String serviceNode;
+    private String clientNode;
     private String zkUrl;
-    private String dbName;
     private String zkNamespace;
     private String id0;
     private String id1;
-    private String registNode;
     private String postfix;
     private long reConnectSkipTime = 30 * 60 * 1000; // 重连的间隔时间
     private long checkSkipTime = 5 * 60 * 1000;// 检查间隔时间
+    private String mycatCluster;
 
     public String getLockNode() {
         return lockNode;
@@ -50,14 +51,6 @@ public class ZkDbConfig {
         this.id1 = id1;
     }
 
-    public String getRegistNode() {
-        return registNode;
-    }
-
-    public void setRegistNode(String registNode) {
-        this.registNode = registNode;
-    }
-
     public String getPostfix() {
         return postfix;
     }
@@ -72,14 +65,6 @@ public class ZkDbConfig {
 
     public void setReConnectSkipTime(long reConnectSkipTime) {
         this.reConnectSkipTime = reConnectSkipTime;
-    }
-
-    public String getDbName() {
-        return dbName;
-    }
-
-    public void setDbName(String dbName) {
-        this.dbName = dbName;
     }
 
     public String getZkUrl() {
@@ -104,5 +89,29 @@ public class ZkDbConfig {
 
     public void setCheckSkipTime(long checkSkipTime) {
         this.checkSkipTime = checkSkipTime;
+    }
+
+    public String getMycatCluster() {
+        return mycatCluster;
+    }
+
+    public void setMycatCluster(String mycatCluster) {
+        this.mycatCluster = mycatCluster;
+    }
+
+    public String getServiceNode() {
+        return serviceNode;
+    }
+
+    public void setServiceNode(String serviceNode) {
+        this.serviceNode = serviceNode;
+    }
+
+    public String getClientNode() {
+        return clientNode;
+    }
+
+    public void setClientNode(String clientNode) {
+        this.clientNode = clientNode;
     }
 }
