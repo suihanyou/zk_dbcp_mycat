@@ -141,7 +141,7 @@ public class MycatNodeService {
             lock.lock();
             MycatNodeVo mycatNodeVO = FastJSONUtils.toBeanFromByteArray(nodeInfo, MycatNodeVo.class);
             if (!mycatNodeVO.getUsers().containsKey(getUserName())) {
-                throw new RuntimeException("节点：" + path + "未能获取数据库：" + getUserName() + "的配置，请检查datebaseName");
+                throw new RuntimeException("节点：" + path + "未能获取数据库用户：" + getUserName() + "的配置，请检查userName");
             }
             mycatNodeVO.setNumber(stat == null ? 0 : stat.getNumChildren()); // 客户端的节点个数
             nodes.put(path, mycatNodeVO);

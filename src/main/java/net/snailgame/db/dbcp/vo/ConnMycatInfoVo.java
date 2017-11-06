@@ -26,8 +26,8 @@ public class ConnMycatInfoVo {
 
     public ConnMycatInfoVo(String servicePath, String clientPath, MycatNodeVo vo, String userName) {
         this.url = vo.getUrl();
-        this.setServicePath(servicePath);
-        this.setClientPath(clientPath);
+        this.servicePath = servicePath;
+        this.clientPath = clientPath;
         this.passwd = vo.getUsers().get(userName).getPasswd();
         this.userName = vo.getUsers().get(userName).getUserName();
         this.nodeId = UUID.randomUUID().toString();

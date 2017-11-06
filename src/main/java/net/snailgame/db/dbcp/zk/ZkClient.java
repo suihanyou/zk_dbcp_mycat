@@ -95,7 +95,8 @@ public class ZkClient {
     }
 
     public void deleteNode(String path) throws Exception {
-        zkConn.delete().inBackground().forPath(path);
+        if (zkConn.checkExists().forPath(path) != null)
+            zkConn.delete().inBackground().forPath(path);
     }
 
     public void updateNodeDate(String path, String data) throws Exception {
