@@ -50,11 +50,15 @@ public class Test1 {
     @Test
     public void test() {
         while (true) {
-            List<ConfSeq> list = confSeqDao.getAllConfSeqs();
-            System.out.println(list.size());
             try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
+                List<ConfSeq> list = confSeqDao.getAllConfSeqs();
+                System.out.println(list.size());
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            } catch (Exception e) {
                 e.printStackTrace();
             }
         }

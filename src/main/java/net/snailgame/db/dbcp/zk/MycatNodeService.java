@@ -44,10 +44,23 @@ public class MycatNodeService {
         this.clientPath = clientPath;
     }
 
-    public void reset() {
+    public void reset(boolean reconn) {
         try {
             lock.lock();
-            setNeedReconn(false);
+            if (connNow != null) {
+                try {
+                    nodes.get(connNow.getServicePath()).lessNumber();
+                } catch (Exception e) {
+
+                }
+            }
+            if (connNext != null)
+                try {
+                    nodes.get(connNext.getServicePath()).addNumber();
+                } catch (Exception e) {
+
+                }
+            setNeedReconn(reconn);
             setConnNow(connNext);
             setConnNext(null);
         } finally {
@@ -62,15 +75,21 @@ public class MycatNodeService {
             String clientTemp = null;
             float rate = 100.0f;
             float rateDiff = 1f;
+            boolean flag = false;
             if (connNow != null) {
                 serviceTemp = connNow.getServicePath();
                 clientTemp = connNow.getClientPath();
                 rateDiff = 2f;
+                rate = nodes.get(connNow.getServicePath()).getRate();
             }
 
             for (String key : nodes.keySet()) {
                 // 跳过坏了的节点
                 if (getBadNodes().contains(key)) {
+                    continue;
+                }
+                // 跳过本节点
+                if (key.equals(serviceTemp)) {
                     continue;
                 }
                 // 大于两个节点的差值才有比较换节点
@@ -79,25 +98,24 @@ public class MycatNodeService {
 
                     clientTemp = ZKPaths.makePath(clientPath, ZKPaths.getNodeFromPath(key));
                     rate = nodes.get(key).getRate();
+                    flag = true;
                 }
             }
             // 找到了下个需要连接的节点
-            if (serviceTemp != null) {
-                connNext = new ConnMycatInfoVo(serviceTemp, clientTemp, nodes.get(serviceTemp), getUserName());
-                if (connNow == null) {
+            if (flag)
+                if (serviceTemp != null) {
+                    connNext = new ConnMycatInfoVo(serviceTemp, clientTemp, nodes.get(serviceTemp), getUserName());
                     setNeedReconn(true);
-                } else if (!connNext.getServicePath().equals(connNow.getServicePath())) {
-                    // 如果下个需要连接的节点不是当前节点
-                    setNeedReconn(true);
+                    return true;
                 } else {
-                    // 没有换节点，不需要重连
-                    connNext = null;
-                    setNeedReconn(false);
+                    // 查找数据库失败
+                    return false;
+                }
+            else {
+                if (connNow == null) {
+                    return false;
                 }
                 return true;
-            } else {
-                // 查找数据库失败
-                return false;
             }
         } finally {
             lock.unlock();
@@ -105,7 +123,7 @@ public class MycatNodeService {
     }
 
     /**
-     * @param path:传入变化的mycat 的注册节点的路径 /mycat/mycat-clust-1/regist/XXX
+     * @param path:传入变化的mycat 的注册节点的路径 /mycat/mycat-clust-1/regist/X-X---X
      */
     public void removeMycatNode(String path) {
         try {
@@ -132,9 +150,9 @@ public class MycatNodeService {
     }
 
     /**
-     * @param path:传入变化的mycat 的注册节点的路径 /mycat/mycat-clust-1/regist/XXX
+     * @param path:传入变化的mycat 的注册节点的路径 /mycat/mycat-clust-1/regist/X---X---X
      * @param nodeInfo:path对应的getDate
-     * @param stat:/mycat/mycat-clust-1/client/XXX 对应的getChildren 的stat
+     * @param stat:/mycat/mycat-clust-1/client/X--X-X 对应的getChildren 的stat
      */
     public void addMycatNode(String path, byte[] nodeInfo, Stat stat) {
         try {
@@ -148,6 +166,9 @@ public class MycatNodeService {
 
             if (getBadNodes().contains(path)) {
                 getBadNodes().remove(path);
+            }
+            if(needReconn&&connNext==null){
+                setConnMycatInfo(null);
             }
         } finally {
             lock.unlock();
