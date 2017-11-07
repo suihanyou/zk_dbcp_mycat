@@ -10,11 +10,9 @@
 	<bean id="zkDbConfig" class="net.snailgame.db.config.ZkDbConfig">
 		<property name="mycatCluster" value="mycat-cluster-1" />
 		<property name="serviceNode" value="/register" />
-		<property name="lockNode" value="/lockNode" />
 		<property name="clientNode" value="/client" />
 		<property name="zkUrl"
 			value="170.1.1.146:2181,170.1.1.147:2181,170.1.1.179:2181" />
-		<property name="zkNamespace" value="mycat" />
 		<property name="id0" value="wang" />
 		<property name="id1" value="yang" />
 		<property name="postfix"

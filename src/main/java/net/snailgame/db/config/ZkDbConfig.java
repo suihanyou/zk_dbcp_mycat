@@ -15,11 +15,11 @@ package net.snailgame.db.config;
  * @version 1.0
  */
 public class ZkDbConfig {
-    private String lockNode;
+    private String lockNode = "/lockNode";
     private String serviceNode;
     private String clientNode;
     private String zkUrl;
-    private String zkNamespace;
+    private String zkNamespace = "mycat";
     private String id0;
     private String id1;
     private String postfix;
@@ -29,10 +29,6 @@ public class ZkDbConfig {
 
     public String getLockNode() {
         return lockNode;
-    }
-
-    public void setLockNode(String lockNode) {
-        this.lockNode = lockNode;
     }
 
     public String getId0() {
@@ -77,10 +73,6 @@ public class ZkDbConfig {
 
     public String getZkNamespace() {
         return zkNamespace;
-    }
-
-    public void setZkNamespace(String zkNamespace) {
-        this.zkNamespace = zkNamespace;
     }
 
     public long getCheckSkipTime() {
