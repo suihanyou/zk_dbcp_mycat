@@ -105,6 +105,7 @@ public class ZkClient {
 
     // 尝试获取分布式锁
     public void tryLock() throws Exception {
+        mycatNodeService.getLock().lock();
         lock.acquire();
     }
 
@@ -113,6 +114,7 @@ public class ZkClient {
             // 释放
             if (lock.isAcquiredInThisProcess())
                 lock.release();
+            mycatNodeService.getLock().unlock();
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -202,13 +204,15 @@ public class ZkClient {
                         if (removePathDeep - pathDeep == 2) {
                             // 客户端停止
                             PathAndNode pathAndNode = ZKPaths.getPathAndNode(event.getData().getPath());
-                            // 获取对应的客户端数
-                            List<String> childsList = client.getChildren().forPath(pathAndNode.getPath());
-                            pathAndNode = ZKPaths.getPathAndNode(pathAndNode.getPath());
-                            mycatNodeService.setCliNode(pathAndNode.getNode(),
-                                    childsList == null ? 0 : childsList.size());
-                            // 触发判断是否需要重连
-                            mycatNodeService.setConnMycatInfo(mycatNodeService.getConnNow());
+                            if (!pathAndNode.getNode().equals(mycatNodeService.getLastNodeId())) {
+                                // 获取对应的客户端数
+                                List<String> childsList = client.getChildren().forPath(pathAndNode.getPath());
+                                pathAndNode = ZKPaths.getPathAndNode(pathAndNode.getPath());
+                                mycatNodeService.setCliNode(pathAndNode.getNode(),
+                                        childsList == null ? 0 : childsList.size());
+                                // 触发判断是否需要重连
+                                mycatNodeService.setConnMycatInfo(mycatNodeService.getConnNow());
+                            }
                         }
                         break;
                     default:

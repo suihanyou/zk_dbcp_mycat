@@ -33,8 +33,9 @@ public class MycatNodeService {
     private String userName;
     private ConnMycatInfoVo connNow;
     private ConnMycatInfoVo connNext;
+    private String lastNodeId; // 上一个连接的id
     private boolean needReconn = false; // 是否需要重连
-    private ReentrantLock lock = new ReentrantLock();
+    private final ReentrantLock lock = new ReentrantLock();
     private String servicePath;
     private String clientPath;
 
@@ -60,6 +61,7 @@ public class MycatNodeService {
                 } catch (Exception e) {
 
                 }
+            this.lastNodeId = connNow == null ? null : connNow.getNodeId();
             setNeedReconn(reconn);
             setConnNow(connNext);
             setConnNext(null);
@@ -88,10 +90,6 @@ public class MycatNodeService {
                 if (getBadNodes().contains(key)) {
                     continue;
                 }
-                // 跳过本节点
-                if (key.equals(serviceTemp)) {
-                    continue;
-                }
                 // 大于两个节点的差值才有比较换节点
                 if (rate >= (nodes.get(key).getRate() + rateDiff / nodes.get(key).getWeight())) {
                     serviceTemp = key;
@@ -105,7 +103,16 @@ public class MycatNodeService {
             if (flag)
                 if (serviceTemp != null) {
                     connNext = new ConnMycatInfoVo(serviceTemp, clientTemp, nodes.get(serviceTemp), getUserName());
-                    setNeedReconn(true);
+                    if (connNow == null) {
+                        setNeedReconn(true);
+                        return true;
+                    }
+                    if (connNext.getServicePath().equals(connNow.getServicePath())) {
+                        connNext = null;
+                        setNeedReconn(false);
+                    } else {
+                        setNeedReconn(true);
+                    }
                     return true;
                 } else {
                     // 查找数据库失败
@@ -167,7 +174,7 @@ public class MycatNodeService {
             if (getBadNodes().contains(path)) {
                 getBadNodes().remove(path);
             }
-            if(needReconn&&connNext==null){
+            if (needReconn && connNext == null) {
                 setConnMycatInfo(null);
             }
         } finally {
@@ -231,5 +238,14 @@ public class MycatNodeService {
     private String getUserName() {
         return userName;
     }
+
+    public ReentrantLock getLock() {
+        return lock;
+    }
+
+    public String getLastNodeId() {
+        return lastNodeId;
+    }
+
 
 }

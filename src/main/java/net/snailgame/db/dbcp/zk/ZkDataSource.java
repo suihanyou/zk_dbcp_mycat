@@ -106,30 +106,25 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
     public synchronized void init(String userName) throws Exception {
         zkClient = new ZkClient(userName, zkDbConfig);
         setMycatNodeService(zkClient.getMycatNodeService());
-        try {
-            Stat stat = new Stat();
-            zkClient.tryLock();
-            // 从zk上初始化mycat节点信息
-            List<String> nodes = zkClient.getChildren(zkClient.getServicePath());
-            if (nodes == null || nodes.size() == 0) {
-                throw new RuntimeException("节点：" + zkDbConfig.getServiceNode() + "没有找到已注册的数据库服务");
-            }
-
-            for (String node : nodes) {
-                // 针对每个服务端查看有多少个client连接
-                String clientTempPath = ZKPaths.makePath(zkClient.getClientPath(), node);
-                zkClient.getDataAndStat(clientTempPath, stat);
-                String serviceTempPath = ZKPaths.makePath(zkClient.getServicePath(), node);
-                getMycatNodeService().addMycatNode(serviceTempPath, zkClient.getDate(serviceTempPath), stat);
-            }
-
-            if (!getMycatNodeService().setConnMycatInfo(null)) {
-                throw new RuntimeException("初始化mycat注册信息失败");
-            }
-            doReConnect(mycatNodeService);
-        } finally {
-            zkClient.unLock();
+        Stat stat = new Stat();
+        // 从zk上初始化mycat节点信息
+        List<String> nodes = zkClient.getChildren(zkClient.getServicePath());
+        if (nodes == null || nodes.size() == 0) {
+            throw new RuntimeException("节点：" + zkDbConfig.getServiceNode() + "没有找到已注册的数据库服务");
         }
+
+        for (String node : nodes) {
+            // 针对每个服务端查看有多少个client连接
+            String clientTempPath = ZKPaths.makePath(zkClient.getClientPath(), node);
+            zkClient.getDataAndStat(clientTempPath, stat);
+            String serviceTempPath = ZKPaths.makePath(zkClient.getServicePath(), node);
+            getMycatNodeService().addMycatNode(serviceTempPath, zkClient.getDate(serviceTempPath), stat);
+        }
+
+        if (!getMycatNodeService().setConnMycatInfo(null)) {
+            throw new RuntimeException("初始化mycat注册信息失败");
+        }
+        doReConnect(mycatNodeService);
 
         MonitorThread monitorThread = new MonitorThread(this);
         monitorThread.setDaemon(true);
@@ -187,36 +182,39 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
     // 重连
     private void doReConnect(MycatNodeService mycatNodeService) throws Exception {
         if (mycatNodeService.isNeedReconn()) {
-            // 重连的时候一个一个判断，防止潮汐乱迁移
-            ConnMycatInfoVo connNow = mycatNodeService.getConnNow();
-            ConnMycatInfoVo connNext = mycatNodeService.getConnNext();
-
-            BasicDataSource dataSource = new BasicDataSource();
-            BeanUtils.copyProperties(this.dataSource, dataSource, "logWriter", "loginTimeout");
-            setDbUrl(dataSource, connNext.getUrl());
-            dataSource.setPassword(connNext.getPasswd());
-            dataSource.setUsername(connNext.getUserName());
-            if (this.dataSource != null) {
-                ((BasicDataSource) this.dataSource).close();
-            }
-
-            this.dataSource = dataSource;
-
-            // 注册到选好的mycat 服务下
             try {
-                zkClient.createNode(ZKPaths.makePath(connNext.getClientPath(), connNext.getNodeId()),
-                        CreateMode.EPHEMERAL);
-                // 如果是切换节点，删除之前注册的节点
-                if (connNow != null) {
-                    zkClient.deleteNode(ZKPaths.makePath(connNow.getClientPath(), connNow.getNodeId()));
+                zkClient.tryLock();
+                // 重连的时候一个一个判断，防止潮汐乱迁移
+                ConnMycatInfoVo connNow = mycatNodeService.getConnNow();
+                ConnMycatInfoVo connNext = mycatNodeService.getConnNext();
+
+                BasicDataSource dataSource = new BasicDataSource();
+                BeanUtils.copyProperties(this.dataSource, dataSource, "logWriter", "loginTimeout");
+                setDbUrl(dataSource, connNext.getUrl());
+                dataSource.setPassword(connNext.getPasswd());
+                dataSource.setUsername(connNext.getUserName());
+                if (this.dataSource != null) {
+                    ((BasicDataSource) this.dataSource).close();
                 }
-            } catch (Exception e) {
-                e.printStackTrace();
+
+                this.dataSource = dataSource;
+
+                // 注册到选好的mycat 服务下
+                try {
+                    zkClient.createNode(ZKPaths.makePath(connNext.getClientPath(), connNext.getNodeId()),
+                            CreateMode.EPHEMERAL);
+                    // 如果是切换节点，删除之前注册的节点
+                    if (connNow != null) {
+                        zkClient.deleteNode(ZKPaths.makePath(connNow.getClientPath(), connNow.getNodeId()));
+                    }
+                } catch (Exception e) {
+                }
+
+                mycatNodeService.reset(false);
+                lastConnTime = System.currentTimeMillis(); // 重连完成记录上次重连时间
+            } finally {
+                zkClient.unLock();
             }
-
-
-            mycatNodeService.reset(false);
-            lastConnTime = System.currentTimeMillis(); // 重连完成记录上次重连时间
 
             logger.debug("SnailZookeeperDataSource::doReConnect::end");
         }
@@ -286,13 +284,18 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
         return dataSource.isWrapperFor(iface);
     }
 
+    public String getUrl() {
+        return ((BasicDataSource) dataSource).getUrl();
+    }
+
     @Override
     public Connection getConnection() throws SQLException {
         Connection connection = null;
         try {
-            zkClient.tryLock();
             connection = this.dataSource.getConnection();
         } catch (Exception e) {
+            logger.error(this.getUrl());
+            e.printStackTrace();
             logger.error(e.getMessage());
             try {
                 this.getMycatNodeService().addBadNodeNow();
@@ -311,9 +314,11 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
                 logger.error(e1.getMessage());
                 throw new SQLException("getConnection failed!!!" + e.getMessage());
             }
-            return this.dataSource.getConnection();
-        } finally {
-            zkClient.unLock();
+            if (this.dataSource != null)
+                return this.dataSource.getConnection();
+            else {
+                return null;
+            }
         }
 
         return connection;
