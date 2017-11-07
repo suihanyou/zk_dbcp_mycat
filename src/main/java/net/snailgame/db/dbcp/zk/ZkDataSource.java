@@ -205,7 +205,7 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
             // 注册到选好的mycat 服务下
             try {
                 zkClient.createNode(ZKPaths.makePath(connNext.getClientPath(), connNext.getNodeId()),
-                        CreateMode.EPHEMERAL_SEQUENTIAL);
+                        CreateMode.EPHEMERAL);
                 // 如果是切换节点，删除之前注册的节点
                 if (connNow != null) {
                     zkClient.deleteNode(ZKPaths.makePath(connNow.getClientPath(), connNow.getNodeId()));

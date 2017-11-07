@@ -189,6 +189,7 @@ public class ZkClient {
                             PathAndNode pathAndNode = ZKPaths.getPathAndNode(event.getData().getPath());
                             // 获取对应的客户端数
                             List<String> childsList = client.getChildren().forPath(pathAndNode.getPath());
+                            pathAndNode = ZKPaths.getPathAndNode(pathAndNode.getPath());
                             mycatNodeService.setCliNode(pathAndNode.getNode(),
                                     childsList == null ? 0 : childsList.size());
                         }
@@ -203,6 +204,7 @@ public class ZkClient {
                             PathAndNode pathAndNode = ZKPaths.getPathAndNode(event.getData().getPath());
                             // 获取对应的客户端数
                             List<String> childsList = client.getChildren().forPath(pathAndNode.getPath());
+                            pathAndNode = ZKPaths.getPathAndNode(pathAndNode.getPath());
                             mycatNodeService.setCliNode(pathAndNode.getNode(),
                                     childsList == null ? 0 : childsList.size());
                             // 触发判断是否需要重连
