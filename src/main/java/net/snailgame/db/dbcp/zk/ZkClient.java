@@ -5,7 +5,9 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import net.snailgame.db.config.ZkDbConfig;
+import net.snailgame.db.dbcp.vo.ConnMycatInfoVo;
 
+import org.apache.commons.dbcp.BasicDataSource;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
 import org.apache.curator.framework.api.ACLProvider;
@@ -27,6 +29,7 @@ import org.apache.zookeeper.ZooDefs.Perms;
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Id;
 import org.apache.zookeeper.data.Stat;
+import org.springframework.beans.BeanUtils;
 
 /**
  * <p>
@@ -49,48 +52,183 @@ public class ZkClient {
     private InterProcessMutex lock;
     private final MycatNodeService mycatNodeService = new MycatNodeService();
     private String rootPath;
-    private String servicePath;
-    private String clientPath;
+    private long lastConnTime = 0; // 上次重连时间
+    private ZkDbConfig zkDbConfig;
 
-
-    public ZkClient(String userName, ZkDbConfig zkDbConfig) throws Exception {
+    public ZkClient(BasicDataSource dataSourceTemplate, ZkDbConfig zkDbConfig) throws Exception {
         if (zkConn == null) {
+            this.zkDbConfig = zkDbConfig;
+            this.rootPath = ZKPaths.PATH_SEPARATOR + zkDbConfig.getMycatCluster();
+            this.lockNode = rootPath + zkDbConfig.getLockNode();
+            
+            // 建立zk连接
             zkConn = buildConnection(zkDbConfig.getZkUrl(), zkDbConfig.getZkNamespace(), zkDbConfig.getId0(),
                     zkDbConfig.getId1());
-            rootPath = ZKPaths.PATH_SEPARATOR + zkDbConfig.getMycatCluster();
-            this.lockNode = rootPath + zkDbConfig.getLockNode();
-            this.servicePath = rootPath + zkDbConfig.getServiceNode();
-            this.clientPath = rootPath + zkDbConfig.getClientNode();
-            lock = new InterProcessMutex(zkConn, getLockNode());
+            this.lock = new InterProcessMutex(zkConn, getLockNode());
+
+            String servicePath = rootPath + zkDbConfig.getServiceNode();
+            String clientPath = rootPath + zkDbConfig.getClientNode();
             // 启动服务端监控
-            PathChildrenCache pathChildrenCache = getpathChildrenCache(zkConn, getServicePath(), true);
+            PathChildrenCache pathChildrenCache = getpathChildrenCache(this, servicePath, true);
             pathChildrenCache.start();
             // 启动客户端监控
             TreeCache treeCache = getTreeCache(zkDbConfig.getZkUrl(), zkDbConfig.getZkNamespace(), zkDbConfig.getId0(),
-                    zkDbConfig.getId1(), getMycatNodeService(), zkConn, getClientPath());
+                    zkDbConfig.getId1(), getMycatNodeService(), this, clientPath);
             treeCache.start();
 
-            mycatNodeService.init(userName, this.servicePath, this.clientPath);
+            // 初始化节点管理类
+            mycatNodeService.init(dataSourceTemplate, servicePath, clientPath);
+
+            doReconnMycat();
+
+            // 启动监控线程
+            MonitorThread monitorThread = new MonitorThread(this);
+            monitorThread.setDaemon(true);
+            monitorThread.start();
         }
     }
 
-    public List<String> getChildren(String path) throws Exception {
+    public void doReconnMycat() throws Exception {
+        try {
+            // 重连的时候一个一个判断，防止潮汐乱迁移
+            tryLock();
+            // 从zk上初始化节点管理类的数据
+            initNodeInfo();
+
+            // 执行重连
+            doReConnect();
+        } finally {
+            unLock();
+        }
+    }
+
+    private void initNodeInfo() throws Exception {
+        Stat stat = new Stat();
+        // 从zk上初始化mycat节点信息
+        List<String> nodes = getChildren(mycatNodeService.getServicePath());
+        if (nodes == null || nodes.size() == 0) {
+            throw new RuntimeException("节点：" + zkDbConfig.getServiceNode() + "没有找到已注册的数据库服务");
+        }
+
+        for (String node : nodes) {
+            // 针对每个服务端查看有多少个client连接
+            String clientTempPath = ZKPaths.makePath(mycatNodeService.getClientPath(), node);
+            getDataAndStat(clientTempPath, stat);
+            String serviceTempPath = ZKPaths.makePath(mycatNodeService.getServicePath(), node);
+            getMycatNodeService().addMycatNode(serviceTempPath, getDate(serviceTempPath), stat);
+        }
+
+        if (!getMycatNodeService().setConnMycatInfo(null)) {
+            throw new RuntimeException("初始化mycat注册信息失败");
+        }
+    }
+
+    private class MonitorThread extends Thread {
+        private ZkClient zkClient;
+
+        public MonitorThread(ZkClient zkClient) {
+            this.zkClient = zkClient;
+        }
+
+        @Override
+        public void run() {
+            while (true) {
+                if (zkClient.getMycatNodeService().isNeedReconn()) {
+                    // 如果需要重连，当前连接为空，立即重连
+                    if (zkClient.getMycatNodeService().getConnNow() == null) {
+                        doReconn();
+                    } else {
+                        // 如果需要重连，当前连接不为空，到时间后再重连
+                        if (checkReconn(lastConnTime, zkDbConfig.getReConnectSkipTime()) > 0) {
+                            doReconn();
+                        }
+                    }
+                }
+
+                try {
+                    sleep(zkDbConfig.getCheckSkipTime());
+                } catch (InterruptedException e) {
+                    logger.error(e.getMessage());
+                    e.printStackTrace();
+                }
+            }
+        }
+
+        private void doReconn() {
+            try {
+                zkClient.doReconnMycat();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        private long checkReconn(long lastConnTime, long skipTime) {
+            return System.currentTimeMillis() - lastConnTime - skipTime;
+        }
+    }
+
+
+    // 重连
+    private void doReConnect() throws Exception {
+        if (mycatNodeService.isNeedReconn()) {
+
+            ConnMycatInfoVo connNow = mycatNodeService.getConnNow();
+            ConnMycatInfoVo connNext = mycatNodeService.getConnNext();
+
+            BasicDataSource dataSource = new BasicDataSource();
+            BeanUtils.copyProperties(mycatNodeService.getDataSource(), dataSource, "logWriter", "loginTimeout");
+            buildDbUrl(dataSource, connNext.getUrl());
+            dataSource.setPassword(connNext.getPasswd());
+            dataSource.setUsername(connNext.getUserName());
+            if (mycatNodeService.getDataSource() != null) {
+                mycatNodeService.closeDb();
+            }
+            mycatNodeService.setDataSource(dataSource);
+
+            // 注册到选好的mycat 服务下
+            try {
+                createNode(ZKPaths.makePath(connNext.getClientPath(), connNext.getNodeId()), CreateMode.EPHEMERAL);
+                // 如果是切换节点，删除之前注册的节点
+                if (connNow != null) {
+                    deleteNode(ZKPaths.makePath(connNow.getClientPath(), connNow.getNodeId()));
+                }
+            } catch (Exception e) {
+            }
+
+            mycatNodeService.reset(false);
+            lastConnTime = System.currentTimeMillis(); // 重连完成记录上次重连时间
+
+
+            logger.debug("SnailZookeeperDataSource::doReConnect::end");
+        }
+    }
+
+    private void buildDbUrl(BasicDataSource dataSource, String addr) {
+        String prefix = null;
+        if (dataSource.getDriverClassName().equals("com.mysql.jdbc.Driver")) {
+            prefix = "jdbc:mysql://";
+        }
+        if (dataSource.getDriverClassName().equals("oracle.jdbc.driver.OracleDriver")) {
+            prefix = "jdbc:oracle:thin:";
+        }
+        logger.debug("setDbUrl:" + addr);
+        dataSource.setUrl(prefix + addr + zkDbConfig.getPostfix());
+    }
+
+
+    private List<String> getChildren(String path) throws Exception {
         return zkConn.getChildren().forPath(path);
     }
 
-    public List<String> getChildrenAndStat(String path, Stat stat) throws Exception {
-        return zkConn.getChildren().storingStatIn(stat).forPath(path);
-    }
-
-    public byte[] getDataAndStat(String path, Stat stat) throws Exception {
+    private byte[] getDataAndStat(String path, Stat stat) throws Exception {
         return zkConn.getData().storingStatIn(stat).forPath(path);
     }
 
-    public byte[] getDate(String path) throws Exception {
+    private byte[] getDate(String path) throws Exception {
         return zkConn.getData().forPath(path);
     }
 
-    public void createNode(String path, CreateMode createMode) throws Exception {
+    private void createNode(String path, CreateMode createMode) throws Exception {
         zkConn.create().withMode(createMode).forPath(path);
     }
 
@@ -99,17 +237,13 @@ public class ZkClient {
             zkConn.delete().inBackground().forPath(path);
     }
 
-    public void updateNodeDate(String path, String data) throws Exception {
-        zkConn.setData().forPath(path, data.getBytes());
-    }
-
     // 尝试获取分布式锁
-    public void tryLock() throws Exception {
+    private void tryLock() throws Exception {
         mycatNodeService.getLock().lock();
         lock.acquire();
     }
 
-    public void unLock() {
+    private void unLock() {
         try {
             // 释放
             if (lock.isAcquiredInThisProcess())
@@ -161,8 +295,8 @@ public class ZkClient {
 
     // 用户client端节点的监控
     private static TreeCache getTreeCache(final String url, final String namespace, final String id0, final String id1,
-            final MycatNodeService mycatNodeService, CuratorFramework client, final String clientPath) throws Exception {
-        final TreeCache cached = new TreeCache(client, clientPath);
+            final MycatNodeService mycatNodeService, final ZkClient zkClient, final String clientPath) throws Exception {
+        final TreeCache cached = new TreeCache(zkClient.getZkConn(), clientPath);
         final int pathDeep = clientPath.split(ZKPaths.PATH_SEPARATOR).length;
         cached.getListenable().addListener(new TreeCacheListener() {
             @Override
@@ -202,17 +336,7 @@ public class ZkClient {
                     case NODE_REMOVED:
                         int removePathDeep = event.getData().getPath().split(ZKPaths.PATH_SEPARATOR).length;
                         if (removePathDeep - pathDeep == 2) {
-                            // 客户端停止
-                            PathAndNode pathAndNode = ZKPaths.getPathAndNode(event.getData().getPath());
-                            if (!pathAndNode.getNode().equals(mycatNodeService.getLastNodeId())) {
-                                // 获取对应的客户端数
-                                List<String> childsList = client.getChildren().forPath(pathAndNode.getPath());
-                                pathAndNode = ZKPaths.getPathAndNode(pathAndNode.getPath());
-                                mycatNodeService.setCliNode(pathAndNode.getNode(),
-                                        childsList == null ? 0 : childsList.size());
-                                // 触发判断是否需要重连
-                                mycatNodeService.setConnMycatInfo(mycatNodeService.getConnNow());
-                            }
+                            zkClient.doReconnMycat();
                         }
                         break;
                     default:
@@ -224,9 +348,9 @@ public class ZkClient {
     }
 
     // 用户服务端节点的监控
-    public PathChildrenCache getpathChildrenCache(CuratorFramework client, String path, Boolean cacheData)
+    public PathChildrenCache getpathChildrenCache(final ZkClient zkClient, String path, Boolean cacheData)
             throws Exception {
-        final PathChildrenCache cached = new PathChildrenCache(client, path, cacheData);
+        final PathChildrenCache cached = new PathChildrenCache(zkClient.getZkConn(), path, cacheData);
         cached.getListenable().addListener(new PathChildrenCacheListener() {
             @Override
             public void childEvent(CuratorFramework client, PathChildrenCacheEvent event) throws Exception {
@@ -241,10 +365,7 @@ public class ZkClient {
                         System.out.println("Connection error,waiting...");
                         break;
                     case CHILD_ADDED:
-                        // 服务端节点增加
-                        mycatNodeService.addMycatNode(event.getData().getPath(), event.getData().getData(), null);
-                        // 触发判断是否需要重连
-                        mycatNodeService.setConnMycatInfo(mycatNodeService.getConnNow());
+                        zkClient.doReconnMycat();
                         break;
                     case CHILD_UPDATED:
                         logger.debug(event);
@@ -276,11 +397,7 @@ public class ZkClient {
         return lockNode;
     }
 
-    public String getClientPath() {
-        return clientPath;
-    }
-
-    public String getServicePath() {
-        return servicePath;
+    public CuratorFramework getZkConn() {
+        return zkConn;
     }
 }

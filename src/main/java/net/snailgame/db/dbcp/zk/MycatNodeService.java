@@ -1,11 +1,15 @@
 package net.snailgame.db.dbcp.zk;
 
+import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 
+import javax.sql.DataSource;
+
+import org.apache.commons.dbcp.BasicDataSource;
 import org.apache.curator.utils.ZKPaths;
 import org.apache.zookeeper.data.Stat;
 
@@ -38,9 +42,11 @@ public class MycatNodeService {
     private final ReentrantLock lock = new ReentrantLock();
     private String servicePath;
     private String clientPath;
+    private volatile DataSource dataSource;
 
-    public void init(String userName, String servicePath, String clientPath) {
-        this.userName = userName;
+    public void init(BasicDataSource dataSourceTemplate, String servicePath, String clientPath) {
+        this.userName = dataSourceTemplate.getUsername();
+        this.dataSource = dataSourceTemplate;
         this.servicePath = servicePath;
         this.clientPath = clientPath;
     }
@@ -94,7 +100,7 @@ public class MycatNodeService {
                 if (rate >= (nodes.get(key).getRate() + rateDiff / nodes.get(key).getWeight())) {
                     serviceTemp = key;
 
-                    clientTemp = ZKPaths.makePath(clientPath, ZKPaths.getNodeFromPath(key));
+                    clientTemp = ZKPaths.makePath(getClientPath(), ZKPaths.getNodeFromPath(key));
                     rate = nodes.get(key).getRate();
                     flag = true;
                 }
@@ -150,7 +156,7 @@ public class MycatNodeService {
     public void removeCliNode(String nodeName) {
         try {
             lock.lock();
-            nodes.get(ZKPaths.makePath(this.servicePath, nodeName)).lessNumber();
+            nodes.get(ZKPaths.makePath(this.getServicePath(), nodeName)).lessNumber();
         } finally {
             lock.unlock();
         }
@@ -188,7 +194,7 @@ public class MycatNodeService {
     public void addCliNode(String nodeName) {
         try {
             lock.lock();
-            nodes.get(ZKPaths.makePath(this.servicePath, nodeName)).addNumber();
+            nodes.get(ZKPaths.makePath(this.getServicePath(), nodeName)).addNumber();
         } finally {
             lock.unlock();
         }
@@ -197,7 +203,7 @@ public class MycatNodeService {
     public void setCliNode(String nodeName, int number) {
         try {
             lock.lock();
-            nodes.get(ZKPaths.makePath(this.servicePath, nodeName)).setNumber(number);
+            nodes.get(ZKPaths.makePath(this.getServicePath(), nodeName)).setNumber(number);
         } finally {
             lock.unlock();
         }
@@ -247,5 +253,25 @@ public class MycatNodeService {
         return lastNodeId;
     }
 
+    public DataSource getDataSource() {
+        return dataSource;
+    }
+
+
+    public void closeDb() throws SQLException {
+        ((BasicDataSource) this.getDataSource()).close();
+    }
+
+    public void setDataSource(DataSource dataSource) {
+        this.dataSource = dataSource;
+    }
+
+    public String getServicePath() {
+        return servicePath;
+    }
+
+    public String getClientPath() {
+        return clientPath;
+    }
 
 }
