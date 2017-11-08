@@ -13,7 +13,10 @@ import org.apache.commons.dbcp.BasicDataSource;
 import org.apache.curator.utils.ZKPaths;
 import org.apache.zookeeper.data.Stat;
 
+import com.alibaba.druid.pool.DruidDataSource;
+
 import net.snailgame.db.util.FastJSONUtils;
+import net.snailgame.db.config.EnumDbType;
 import net.snailgame.db.dbcp.vo.ConnMycatInfoVo;
 import net.snailgame.db.dbcp.vo.MycatNodeVo;
 
@@ -71,6 +74,7 @@ public class MycatNodeService {
             setNeedReconn(reconn);
             setConnNow(connNext);
             setConnNext(null);
+            System.err.println("节点重连到:" + connNow.getUrl());
         } finally {
             lock.unlock();
         }
@@ -258,8 +262,19 @@ public class MycatNodeService {
     }
 
 
-    public void closeDb() throws SQLException {
-        ((BasicDataSource) this.getDataSource()).close();
+    public void closeDb(EnumDbType enumDbType) throws SQLException {
+        switch (enumDbType) {
+            case DBCP:
+                ((BasicDataSource) this.getDataSource()).close();
+                break;
+            case DRUID:
+                ((DruidDataSource) this.getDataSource()).close();
+                break;
+
+            default:
+                break;
+        }
+
     }
 
     public void setDataSource(DataSource dataSource) {

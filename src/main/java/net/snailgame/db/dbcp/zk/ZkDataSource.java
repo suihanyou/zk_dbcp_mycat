@@ -149,7 +149,15 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
     }
 
     public String getUrl() {
-        return ((BasicDataSource) mycatNodeService.getDataSource()).getUrl();
+        switch (zkDbConfig.getDbType()) {
+            case DBCP:
+                return ((BasicDataSource) mycatNodeService.getDataSource()).getUrl();
+            case DRUID:
+                return ((DruidDataSource) mycatNodeService.getDataSource()).getUrl();
+            default:
+                return null;
+        }
+
     }
 
     @Override

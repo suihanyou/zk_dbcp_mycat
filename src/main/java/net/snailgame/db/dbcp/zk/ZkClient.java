@@ -181,54 +181,57 @@ public class ZkClient {
     // 重连
     private void doReConnect() throws Exception {
         if (mycatNodeService.isNeedReconn()) {
-
             ConnMycatInfoVo connNow = mycatNodeService.getConnNow();
             ConnMycatInfoVo connNext = mycatNodeService.getConnNext();
-
-            switch (enumDbType) {
-                case DBCP:
-                    BasicDataSource basicDataSource = new BasicDataSource();
-                    BeanUtils.copyProperties(mycatNodeService.getDataSource(), basicDataSource, "logWriter",
-                            "loginTimeout");
-                    buildDbUrl(basicDataSource, connNext.getUrl());
-                    basicDataSource.setPassword(connNext.getPasswd());
-                    basicDataSource.setUsername(connNext.getUserName());
-                    if (mycatNodeService.getDataSource() != null) {
-                        mycatNodeService.closeDb();
-                    }
-                    mycatNodeService.setDataSource(basicDataSource);
-                    break;
-                case DRUID:
-                    DruidDataSource druidDataSource = new DruidDataSource();
-                    BeanUtils.copyProperties(mycatNodeService.getDataSource(), druidDataSource, "logWriter",
-                            "loginTimeout");
-                    buildDbUrl(druidDataSource, connNext.getUrl());
-                    druidDataSource.setPassword(connNext.getPasswd());
-                    druidDataSource.setUsername(connNext.getUserName());
-                    if (mycatNodeService.getDataSource() != null) {
-                        mycatNodeService.closeDb();
-                    }
-                    mycatNodeService.setDataSource(druidDataSource);
-                    break;
-                default:
-                    break;
-            }
-
-            // 注册到选好的mycat 服务下
-            try {
-                createNode(ZKPaths.makePath(connNext.getClientPath(), connNext.getNodeId()), CreateMode.EPHEMERAL);
-                // 如果是切换节点，删除之前注册的节点
-                if (connNow != null) {
-                    deleteNode(ZKPaths.makePath(connNow.getClientPath(), connNow.getNodeId()));
+            if (connNow != null && connNow.getServicePath().equals(connNext.getServicePath())) {
+                mycatNodeService.reset(false);
+            } else {
+                switch (enumDbType) {
+                    case DBCP:
+                        BasicDataSource basicDataSource = new BasicDataSource();
+                        BeanUtils.copyProperties(mycatNodeService.getDataSource(), basicDataSource, "logWriter",
+                                "loginTimeout");
+                        buildDbUrl(basicDataSource, connNext.getUrl());
+                        basicDataSource.setPassword(connNext.getPasswd());
+                        basicDataSource.setUsername(connNext.getUserName());
+                        if (mycatNodeService.getDataSource() != null) {
+                            mycatNodeService.closeDb(enumDbType);
+                        }
+                        mycatNodeService.setDataSource(basicDataSource);
+                        break;
+                    case DRUID:
+                        DruidDataSource druidDataSource = new DruidDataSource();
+                        BeanUtils.copyProperties(mycatNodeService.getDataSource(), druidDataSource, "logWriter",
+                                "loginTimeout");
+                        buildDbUrl(druidDataSource, connNext.getUrl());
+                        druidDataSource.setPassword(connNext.getPasswd());
+                        druidDataSource.setUsername(connNext.getUserName());
+                        if (mycatNodeService.getDataSource() != null) {
+                            mycatNodeService.closeDb(enumDbType);
+                        }
+                        druidDataSource.restart();
+                        mycatNodeService.setDataSource(druidDataSource);
+                        break;
+                    default:
+                        break;
                 }
-            } catch (Exception e) {
+
+                // 注册到选好的mycat 服务下
+                try {
+                    createNode(ZKPaths.makePath(connNext.getClientPath(), connNext.getNodeId()), CreateMode.EPHEMERAL);
+                    // 如果是切换节点，删除之前注册的节点
+                    if (connNow != null) {
+                        deleteNode(ZKPaths.makePath(connNow.getClientPath(), connNow.getNodeId()));
+                    }
+                } catch (Exception e) {
+                }
+
+                mycatNodeService.reset(false);
+                lastConnTime = System.currentTimeMillis(); // 重连完成记录上次重连时间
+
+
+                logger.debug("SnailZookeeperDataSource::doReConnect::end");
             }
-
-            mycatNodeService.reset(false);
-            lastConnTime = System.currentTimeMillis(); // 重连完成记录上次重连时间
-
-
-            logger.debug("SnailZookeeperDataSource::doReConnect::end");
         }
     }
 
@@ -362,6 +365,7 @@ public class ZkClient {
                     case NODE_ADDED:
                         int changePathDeep = event.getData().getPath().split(ZKPaths.PATH_SEPARATOR).length;
                         if (changePathDeep - pathDeep == 2) {
+                            logger.debug("响应客户端节点增加事件：" + event.getData().getPath());
                             // 客户端注册，不需要判断是否需要重连，因为客户端启动的时候已经判断过了
                             PathAndNode pathAndNode = ZKPaths.getPathAndNode(event.getData().getPath());
                             // 获取对应的客户端数
@@ -377,6 +381,9 @@ public class ZkClient {
                     case NODE_REMOVED:
                         int removePathDeep = event.getData().getPath().split(ZKPaths.PATH_SEPARATOR).length;
                         if (removePathDeep - pathDeep == 2) {
+                            // 防止是mycat节点掉了引起的客户端节点迁移，睡眠60S等待一下看是否有mycat节点掉落事件到达
+                            Thread.sleep(60000);
+                            logger.debug("响应客户端节点丢失事件：" + event.getData().getPath());
                             zkClient.doReconnMycat(false);
                         }
                         break;
@@ -406,6 +413,7 @@ public class ZkClient {
                         System.out.println("Connection error,waiting...");
                         break;
                     case CHILD_ADDED:
+                        logger.debug("响应mycat节点增加事件：" + event.getData().getPath());
                         zkClient.doReconnMycat(false);
                         break;
                     case CHILD_UPDATED:
@@ -413,6 +421,7 @@ public class ZkClient {
                         break;
                     case CHILD_REMOVED:
                         // 服务端节点丢失，不需要判断，全节点都掉了
+                        logger.debug("响应mycat节点丢失事件：" + event.getData().getPath());
                         mycatNodeService.removeMycatNode(event.getData().getPath());
                         break;
                     default:
