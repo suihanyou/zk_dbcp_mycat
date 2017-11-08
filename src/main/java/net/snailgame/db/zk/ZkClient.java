@@ -1,4 +1,4 @@
-package net.snailgame.db.dbcp.zk;
+package net.snailgame.db.zk;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -8,7 +8,7 @@ import javax.sql.DataSource;
 
 import net.snailgame.db.config.EnumDbType;
 import net.snailgame.db.config.ZkDbConfig;
-import net.snailgame.db.dbcp.vo.ConnMycatInfoVo;
+import net.snailgame.db.vo.ConnMycatInfoVo;
 
 import org.apache.commons.dbcp.BasicDataSource;
 import org.apache.curator.framework.CuratorFramework;

@@ -1,4 +1,4 @@
-package net.snailgame.db.dbcp.zk;
+package net.snailgame.db.zk;
 
 import java.io.PrintWriter;
 import java.sql.Connection;

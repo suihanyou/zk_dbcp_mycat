@@ -1,4 +1,4 @@
-package net.snailgame.db.dbcp.vo;
+package net.snailgame.db.vo;
 
 import java.util.Map;
 

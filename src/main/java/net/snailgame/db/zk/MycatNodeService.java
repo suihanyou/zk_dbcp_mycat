@@ -1,4 +1,4 @@
-package net.snailgame.db.dbcp.zk;
+package net.snailgame.db.zk;
 
 import java.sql.SQLException;
 import java.util.HashMap;
@@ -16,9 +16,9 @@ import org.apache.zookeeper.data.Stat;
 import com.alibaba.druid.pool.DruidDataSource;
 
 import net.snailgame.db.util.FastJSONUtils;
+import net.snailgame.db.vo.ConnMycatInfoVo;
+import net.snailgame.db.vo.MycatNodeVo;
 import net.snailgame.db.config.EnumDbType;
-import net.snailgame.db.dbcp.vo.ConnMycatInfoVo;
-import net.snailgame.db.dbcp.vo.MycatNodeVo;
 
 /**
  * <p>

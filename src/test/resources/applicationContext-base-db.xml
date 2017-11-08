@@ -11,14 +11,14 @@
 		<property name="mycatCluster" value="mycat-cluster-1" />
 		<property name="serviceNode" value="/register" />
 		<property name="clientNode" value="/client" />
-		<property name="zkUrl"
-			value="170.1.1.146:2181,170.1.1.147:2181,170.1.1.179:2181" />
+		<property name="zkUrl" value="10.5.4.237" />
 		<property name="id0" value="wang" />
 		<property name="id1" value="yang" />
 		<property name="postfix"
 			value="/ocs?autoReconnect=true&amp;failOverReadOnly=false&amp;maxReconnects=5&amp;useUnicode=true&amp;characterEncoding=UTF-8" />
 		<property name="reConnectSkipTime" value="1800000" />
 		<property name="checkSkipTime" value="300000" />
+		<property name="dbType" value="dbcp" /><!-- dbcp or duird -->
 	</bean>
 
 	<bean id="dataSourceTemplate" class="org.apache.commons.dbcp.BasicDataSource"
@@ -46,7 +46,7 @@
 		<property name="validationQueryTimeout" value="5" />
 	</bean>
 
-	<bean id="zookeeperDataSource" class="net.snailgame.db.dbcp.zk.ZkDataSource" />
+	<bean id="zookeeperDataSource" class="net.snailgame.db.zk.ZkDataSource" />
 	<bean id="confSeqDao" class="net.snailgame.db.dbcp.test.dao.impl.ConfSeqDaoImpl" />
 
 	<!-- ================================事务相关控制================================================= -->
