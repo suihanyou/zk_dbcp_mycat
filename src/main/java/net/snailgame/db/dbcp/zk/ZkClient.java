@@ -60,7 +60,7 @@ public class ZkClient {
             this.zkDbConfig = zkDbConfig;
             this.rootPath = ZKPaths.PATH_SEPARATOR + zkDbConfig.getMycatCluster();
             this.lockNode = rootPath + zkDbConfig.getLockNode();
-            
+
             // 建立zk连接
             zkConn = buildConnection(zkDbConfig.getZkUrl(), zkDbConfig.getZkNamespace(), zkDbConfig.getId0(),
                     zkDbConfig.getId1());
@@ -70,7 +70,7 @@ public class ZkClient {
             String clientPath = rootPath + zkDbConfig.getClientNode();
             // 启动服务端监控
             PathChildrenCache pathChildrenCache = getpathChildrenCache(this, servicePath, true);
-            pathChildrenCache.start();
+            pathChildrenCache.start(PathChildrenCache.StartMode.BUILD_INITIAL_CACHE);
             // 启动客户端监控
             TreeCache treeCache = getTreeCache(zkDbConfig.getZkUrl(), zkDbConfig.getZkNamespace(), zkDbConfig.getId0(),
                     zkDbConfig.getId1(), getMycatNodeService(), this, clientPath);
@@ -79,7 +79,7 @@ public class ZkClient {
             // 初始化节点管理类
             mycatNodeService.init(dataSourceTemplate, servicePath, clientPath);
 
-            doReconnMycat();
+            doReconnMycat(true);
 
             // 启动监控线程
             MonitorThread monitorThread = new MonitorThread(this);
@@ -88,12 +88,14 @@ public class ZkClient {
         }
     }
 
-    public void doReconnMycat() throws Exception {
+    // flag为ture抛弃connNow，重新连接，flag 为false判断是否需要重连
+    public void doReconnMycat(boolean flag) throws Exception {
         try {
             // 重连的时候一个一个判断，防止潮汐乱迁移
             tryLock();
             // 从zk上初始化节点管理类的数据
-            initNodeInfo();
+            ConnMycatInfoVo connNow = flag ? null : mycatNodeService.getConnNow();
+            initNodeInfo(connNow);
 
             // 执行重连
             doReConnect();
@@ -102,7 +104,7 @@ public class ZkClient {
         }
     }
 
-    private void initNodeInfo() throws Exception {
+    private void initNodeInfo(ConnMycatInfoVo connNow) throws Exception {
         Stat stat = new Stat();
         // 从zk上初始化mycat节点信息
         List<String> nodes = getChildren(mycatNodeService.getServicePath());
@@ -118,7 +120,7 @@ public class ZkClient {
             getMycatNodeService().addMycatNode(serviceTempPath, getDate(serviceTempPath), stat);
         }
 
-        if (!getMycatNodeService().setConnMycatInfo(null)) {
+        if (!getMycatNodeService().setConnMycatInfo(connNow)) {
             throw new RuntimeException("初始化mycat注册信息失败");
         }
     }
@@ -156,7 +158,7 @@ public class ZkClient {
 
         private void doReconn() {
             try {
-                zkClient.doReconnMycat();
+                zkClient.doReconnMycat(false);
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -336,7 +338,7 @@ public class ZkClient {
                     case NODE_REMOVED:
                         int removePathDeep = event.getData().getPath().split(ZKPaths.PATH_SEPARATOR).length;
                         if (removePathDeep - pathDeep == 2) {
-                            zkClient.doReconnMycat();
+                            zkClient.doReconnMycat(false);
                         }
                         break;
                     default:
@@ -365,7 +367,7 @@ public class ZkClient {
                         System.out.println("Connection error,waiting...");
                         break;
                     case CHILD_ADDED:
-                        zkClient.doReconnMycat();
+                        zkClient.doReconnMycat(false);
                         break;
                     case CHILD_UPDATED:
                         logger.debug(event);

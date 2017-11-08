@@ -158,7 +158,7 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
                     getMycatNodeService().reset(true);
                     throw new RuntimeException("初始化mycat注册信息失败");
                 }
-                zkClient.doReconnMycat();
+                zkClient.doReconnMycat(true);
             } catch (Exception e1) {
                 e1.printStackTrace();
                 logger.error(e1.getMessage());
