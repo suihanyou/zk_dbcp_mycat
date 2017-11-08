@@ -44,9 +44,9 @@ public class MycatNodeService {
     private String clientPath;
     private volatile DataSource dataSource;
 
-    public void init(BasicDataSource dataSourceTemplate, String servicePath, String clientPath) {
-        this.userName = dataSourceTemplate.getUsername();
-        this.dataSource = dataSourceTemplate;
+    public void init(DataSource dataSource, String userName, String servicePath, String clientPath) {
+        this.userName = userName;
+        this.dataSource = dataSource;
         this.servicePath = servicePath;
         this.clientPath = clientPath;
     }

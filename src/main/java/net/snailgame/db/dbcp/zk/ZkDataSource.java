@@ -7,6 +7,7 @@ import java.sql.SQLFeatureNotSupportedException;
 
 import javax.sql.DataSource;
 
+import net.snailgame.db.config.EnumDbType;
 import net.snailgame.db.config.ZkDbConfig;
 
 import org.apache.commons.dbcp.BasicDataSource;
@@ -21,6 +22,8 @@ import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+
+import com.alibaba.druid.pool.DruidDataSource;
 
 /**
  * <p>
@@ -64,16 +67,32 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
 
     @Override
     public void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) throws BeansException {
-        BasicDataSource dataSourceTemplate = beanFactory.getBean(BasicDataSource.class);
-        if (dataSourceTemplate == null) {
-            throw new NoSuchBeanDefinitionException(BasicDataSource.class);
-        }
         zkDbConfig = beanFactory.getBean(ZkDbConfig.class);
         if (zkDbConfig == null) {
             throw new NoSuchBeanDefinitionException(ZkDbConfig.class);
         }
+        DataSource dataSource = null;
+        String userName = null;
+        if (zkDbConfig.getDbType() == EnumDbType.DBCP) {
+            BasicDataSource basicDataSource = beanFactory.getBean(BasicDataSource.class);
+            if (basicDataSource == null) {
+                throw new NoSuchBeanDefinitionException(BasicDataSource.class);
+            }
+            dataSource = basicDataSource;
+            userName = basicDataSource.getUsername();
+        } else if (zkDbConfig.getDbType() == EnumDbType.DRUID) {
+            DruidDataSource druidDataSource = beanFactory.getBean(DruidDataSource.class);
+            if (druidDataSource == null) {
+                throw new NoSuchBeanDefinitionException(BasicDataSource.class);
+            }
+            druidDataSource.setFailFast(true);
+            dataSource = druidDataSource;
+            userName = druidDataSource.getUsername();
+        }
+
         try {
-            init(dataSourceTemplate);
+            zkClient = new ZkClient(dataSource, zkDbConfig, userName, zkDbConfig.getDbType());
+            setMycatNodeService(zkClient.getMycatNodeService());
         } catch (Exception e) {
             e.printStackTrace();
             throw new FatalBeanException("从zk上初始化mycat节点失败");
@@ -92,11 +111,6 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
             e.printStackTrace();
             throw new FatalBeanException("从zk上初始化mycat节点失败");
         }
-    }
-
-    public void init(BasicDataSource dataSourceTemplate) throws Exception {
-        zkClient = new ZkClient(dataSourceTemplate, zkDbConfig);
-        setMycatNodeService(zkClient.getMycatNodeService());
     }
 
     @Override

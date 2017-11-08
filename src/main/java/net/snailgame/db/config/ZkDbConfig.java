@@ -26,6 +26,7 @@ public class ZkDbConfig {
     private long reConnectSkipTime = 30 * 60 * 1000; // 重连的间隔时间
     private long checkSkipTime = 5 * 60 * 1000;// 检查间隔时间
     private String mycatCluster;
+    private EnumDbType dbType;
 
     public String getLockNode() {
         return lockNode;
@@ -105,5 +106,15 @@ public class ZkDbConfig {
 
     public void setClientNode(String clientNode) {
         this.clientNode = clientNode;
+    }
+
+    public EnumDbType getDbType() {
+        return dbType;
+    }
+
+    public void setDbType(String dbType) {
+        if ((this.dbType = EnumDbType.getEnumDbType(dbType.toUpperCase())) == null) {
+            throw new RuntimeException("错误的数据库类型，目前只支持dbcp和druid");
+        }
     }
 }

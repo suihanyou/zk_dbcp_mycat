@@ -4,6 +4,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import javax.sql.DataSource;
+
+import net.snailgame.db.config.EnumDbType;
 import net.snailgame.db.config.ZkDbConfig;
 import net.snailgame.db.dbcp.vo.ConnMycatInfoVo;
 
@@ -31,6 +34,8 @@ import org.apache.zookeeper.data.Id;
 import org.apache.zookeeper.data.Stat;
 import org.springframework.beans.BeanUtils;
 
+import com.alibaba.druid.pool.DruidDataSource;
+
 /**
  * <p>
  * Title: ZkClient.java
@@ -54,12 +59,15 @@ public class ZkClient {
     private String rootPath;
     private long lastConnTime = 0; // 上次重连时间
     private ZkDbConfig zkDbConfig;
+    private EnumDbType enumDbType;
 
-    public ZkClient(BasicDataSource dataSourceTemplate, ZkDbConfig zkDbConfig) throws Exception {
+    public ZkClient(DataSource dataSource, ZkDbConfig zkDbConfig, String userName, EnumDbType enumDbType)
+            throws Exception {
         if (zkConn == null) {
             this.zkDbConfig = zkDbConfig;
             this.rootPath = ZKPaths.PATH_SEPARATOR + zkDbConfig.getMycatCluster();
             this.lockNode = rootPath + zkDbConfig.getLockNode();
+            this.enumDbType = enumDbType;
 
             // 建立zk连接
             zkConn = buildConnection(zkDbConfig.getZkUrl(), zkDbConfig.getZkNamespace(), zkDbConfig.getId0(),
@@ -77,7 +85,7 @@ public class ZkClient {
             treeCache.start();
 
             // 初始化节点管理类
-            mycatNodeService.init(dataSourceTemplate, servicePath, clientPath);
+            mycatNodeService.init(dataSource, userName, servicePath, clientPath);
 
             doReconnMycat(true);
 
@@ -177,15 +185,34 @@ public class ZkClient {
             ConnMycatInfoVo connNow = mycatNodeService.getConnNow();
             ConnMycatInfoVo connNext = mycatNodeService.getConnNext();
 
-            BasicDataSource dataSource = new BasicDataSource();
-            BeanUtils.copyProperties(mycatNodeService.getDataSource(), dataSource, "logWriter", "loginTimeout");
-            buildDbUrl(dataSource, connNext.getUrl());
-            dataSource.setPassword(connNext.getPasswd());
-            dataSource.setUsername(connNext.getUserName());
-            if (mycatNodeService.getDataSource() != null) {
-                mycatNodeService.closeDb();
+            switch (enumDbType) {
+                case DBCP:
+                    BasicDataSource basicDataSource = new BasicDataSource();
+                    BeanUtils.copyProperties(mycatNodeService.getDataSource(), basicDataSource, "logWriter",
+                            "loginTimeout");
+                    buildDbUrl(basicDataSource, connNext.getUrl());
+                    basicDataSource.setPassword(connNext.getPasswd());
+                    basicDataSource.setUsername(connNext.getUserName());
+                    if (mycatNodeService.getDataSource() != null) {
+                        mycatNodeService.closeDb();
+                    }
+                    mycatNodeService.setDataSource(basicDataSource);
+                    break;
+                case DRUID:
+                    DruidDataSource druidDataSource = new DruidDataSource();
+                    BeanUtils.copyProperties(mycatNodeService.getDataSource(), druidDataSource, "logWriter",
+                            "loginTimeout");
+                    buildDbUrl(druidDataSource, connNext.getUrl());
+                    druidDataSource.setPassword(connNext.getPasswd());
+                    druidDataSource.setUsername(connNext.getUserName());
+                    if (mycatNodeService.getDataSource() != null) {
+                        mycatNodeService.closeDb();
+                    }
+                    mycatNodeService.setDataSource(druidDataSource);
+                    break;
+                default:
+                    break;
             }
-            mycatNodeService.setDataSource(dataSource);
 
             // 注册到选好的mycat 服务下
             try {
@@ -206,6 +233,18 @@ public class ZkClient {
     }
 
     private void buildDbUrl(BasicDataSource dataSource, String addr) {
+        String prefix = null;
+        if (dataSource.getDriverClassName().equals("com.mysql.jdbc.Driver")) {
+            prefix = "jdbc:mysql://";
+        }
+        if (dataSource.getDriverClassName().equals("oracle.jdbc.driver.OracleDriver")) {
+            prefix = "jdbc:oracle:thin:";
+        }
+        logger.debug("setDbUrl:" + addr);
+        dataSource.setUrl(prefix + addr + zkDbConfig.getPostfix());
+    }
+
+    private void buildDbUrl(DruidDataSource dataSource, String addr) {
         String prefix = null;
         if (dataSource.getDriverClassName().equals("com.mysql.jdbc.Driver")) {
             prefix = "jdbc:mysql://";
