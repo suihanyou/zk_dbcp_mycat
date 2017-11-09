@@ -1,5 +1,7 @@
 package net.snailgame.db.config;
 
+import net.snailgame.db.util.AesCode;
+
 /**
  * <p>
  * Title: ZkDbConfig.java
@@ -37,7 +39,7 @@ public class ZkDbConfig {
     }
 
     public void setId0(String id0) {
-        this.id0 = id0;
+        this.id0 = AesCode.cbcDecode(id0);
     }
 
     public String getId1() {
@@ -45,7 +47,7 @@ public class ZkDbConfig {
     }
 
     public void setId1(String id1) {
-        this.id1 = id1;
+        this.id1 = AesCode.cbcDecode(id1);
     }
 
     public String getPostfix() {

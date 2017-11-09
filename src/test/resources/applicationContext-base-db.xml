@@ -12,13 +12,13 @@
 		<property name="serviceNode" value="/register" />
 		<property name="clientNode" value="/client" />
 		<property name="zkUrl" value="10.5.4.237" />
-		<property name="id0" value="wang" />
-		<property name="id1" value="yang" />
+		<property name="id0" value="9d34b304c2104a7e6891943f19064dd8" />
+		<property name="id1" value="85d27b5f6269f3cba47dac981313c3ca" />
 		<property name="postfix"
 			value="/ocs?autoReconnect=true&amp;failOverReadOnly=false&amp;maxReconnects=5&amp;useUnicode=true&amp;characterEncoding=UTF-8" />
 		<property name="reConnectSkipTime" value="1800000" />
 		<property name="checkSkipTime" value="300000" />
-		<property name="dbType" value="dbcp" /><!-- dbcp or duird -->
+		<property name="dbType" value="dbcp" /><!-- dbcp or druid -->
 	</bean>
 
 	<bean id="dataSourceTemplate" class="org.apache.commons.dbcp.BasicDataSource"
