@@ -93,6 +93,10 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
         try {
             zkClient = new ZkClient(dataSource, zkDbConfig, userName, zkDbConfig.getDbType());
             setMycatNodeService(zkClient.getMycatNodeService());
+
+            sqlSessionFactoryBean = beanFactory.getBean(SqlSessionFactoryBean.class);
+            sqlSessionFactoryBean.setDataSource(this);
+            sqlSessionFactoryBean.afterPropertiesSet();
         } catch (Exception e) {
             e.printStackTrace();
             throw new FatalBeanException("从zk上初始化mycat节点失败");
@@ -102,14 +106,8 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
             DataSourceTransactionManager transactionManager = beanFactory.getBean(DataSourceTransactionManager.class);
             transactionManager.setDataSource(this);
             transactionManager.afterPropertiesSet();
-
-            sqlSessionFactoryBean = beanFactory.getBean(SqlSessionFactoryBean.class);
-            sqlSessionFactoryBean.setDataSource(this);
-            sqlSessionFactoryBean.afterPropertiesSet();
-
         } catch (Exception e) {
-            e.printStackTrace();
-            throw new FatalBeanException("从zk上初始化mycat节点失败");
+            logger.warn("没有设置transactionManager");
         }
     }
 
