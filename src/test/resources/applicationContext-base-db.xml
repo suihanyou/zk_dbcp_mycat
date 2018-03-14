@@ -8,10 +8,10 @@
        http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx-3.0.xsd">
 
 	<bean id="zkDbConfig" class="net.snailgame.db.config.ZkDbConfig">
-		<property name="mycatCluster" value="mycat-cluster-1" />
+		<property name="mycatCluster" value="mycat-cluster-2" />
 		<property name="serviceNode" value="/register" />
 		<property name="clientNode" value="/client" />
-		<property name="zkUrl" value="10.5.4.237" />
+		<property name="zkUrl" value="170.1.1.146,160.1.1.147,170.1.1.179" />
 		<property name="id0" value="9d34b304c2104a7e6891943f19064dd8" />
 		<property name="id1" value="85d27b5f6269f3cba47dac981313c3ca" />
 		<property name="postfix"

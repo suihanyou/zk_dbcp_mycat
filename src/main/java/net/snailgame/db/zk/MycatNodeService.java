@@ -11,6 +11,7 @@ import javax.sql.DataSource;
 
 import org.apache.commons.dbcp.BasicDataSource;
 import org.apache.curator.utils.ZKPaths;
+import org.apache.log4j.Logger;
 import org.apache.zookeeper.data.Stat;
 
 import com.alibaba.druid.pool.DruidDataSource;
@@ -35,6 +36,7 @@ import net.snailgame.db.config.EnumDbType;
  * @version 1.0
  */
 public class MycatNodeService {
+    private final static Logger logger = Logger.getLogger(MycatNodeService.class);
     private static Map<String, MycatNodeVo> nodes = new HashMap<String, MycatNodeVo>(); // 当前注册的节点集合
     private static Set<String> badNodes = new HashSet<String>(); // 坏节点集合
     private String userName;
@@ -46,6 +48,7 @@ public class MycatNodeService {
     private String servicePath;
     private String clientPath;
     private volatile DataSource dataSource;
+    private boolean connFlag = false;
 
     public void init(DataSource dataSource, String userName, String servicePath, String clientPath) {
         this.userName = userName;
@@ -74,7 +77,7 @@ public class MycatNodeService {
             setNeedReconn(reconn);
             setConnNow(connNext);
             setConnNext(null);
-            System.err.println("节点重连到:" + connNow.getUrl());
+            logger.warn("节点重连到:" + connNow.getUrl());
         } finally {
             lock.unlock();
         }
@@ -287,6 +290,14 @@ public class MycatNodeService {
 
     public String getClientPath() {
         return clientPath;
+    }
+
+    public boolean isConnFlag() {
+        return connFlag;
+    }
+
+    public void setConnFlag(boolean connFlag) {
+        this.connFlag = connFlag;
     }
 
 }

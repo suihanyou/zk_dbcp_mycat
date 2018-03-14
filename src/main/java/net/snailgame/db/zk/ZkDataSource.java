@@ -163,6 +163,7 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
         Connection connection = null;
         try {
             connection = mycatNodeService.getDataSource().getConnection();
+            mycatNodeService.setConnFlag(true);
         } catch (Exception e) {
             logger.error(this.getUrl());
             e.printStackTrace();

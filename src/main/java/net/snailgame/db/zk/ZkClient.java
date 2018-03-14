@@ -119,15 +119,19 @@ public class ZkClient {
         if (nodes == null || nodes.size() == 0) {
             throw new RuntimeException("节点：" + zkDbConfig.getServiceNode() + "没有找到已注册的数据库服务");
         }
-
+        boolean flag = false;
         for (String node : nodes) {
+            if (connNow != null && node.equals(connNow.getUrl())) {
+                flag = true;
+            }
             // 针对每个服务端查看有多少个client连接
             String clientTempPath = ZKPaths.makePath(mycatNodeService.getClientPath(), node);
             getDataAndStat(clientTempPath, stat);
             String serviceTempPath = ZKPaths.makePath(mycatNodeService.getServicePath(), node);
             getMycatNodeService().addMycatNode(serviceTempPath, getDate(serviceTempPath), stat);
         }
-
+        // 防止mycat已经down了，节点已经删除了，如果从服务端节点没找到本节点，就是需要无条件重连
+        connNow = flag ? connNow : null;
         if (!getMycatNodeService().setConnMycatInfo(connNow)) {
             throw new RuntimeException("初始化mycat注册信息失败");
         }
@@ -363,28 +367,32 @@ public class ZkClient {
                         }
                         break;
                     case NODE_ADDED:
-                        int changePathDeep = event.getData().getPath().split(ZKPaths.PATH_SEPARATOR).length;
-                        if (changePathDeep - pathDeep == 2) {
-                            logger.debug("响应客户端节点增加事件：" + event.getData().getPath());
-                            // 客户端注册，不需要判断是否需要重连，因为客户端启动的时候已经判断过了
-                            PathAndNode pathAndNode = ZKPaths.getPathAndNode(event.getData().getPath());
-                            // 获取对应的客户端数
-                            List<String> childsList = client.getChildren().forPath(pathAndNode.getPath());
-                            pathAndNode = ZKPaths.getPathAndNode(pathAndNode.getPath());
-                            mycatNodeService.setCliNode(pathAndNode.getNode(),
-                                    childsList == null ? 0 : childsList.size());
+                        if (mycatNodeService.isConnFlag()) {
+                            int changePathDeep = event.getData().getPath().split(ZKPaths.PATH_SEPARATOR).length;
+                            if (changePathDeep - pathDeep == 2) {
+                                logger.debug("响应客户端节点增加事件：" + event.getData().getPath());
+                                // 客户端注册，不需要判断是否需要重连，因为客户端启动的时候已经判断过了
+                                PathAndNode pathAndNode = ZKPaths.getPathAndNode(event.getData().getPath());
+                                // 获取对应的客户端数
+                                List<String> childsList = client.getChildren().forPath(pathAndNode.getPath());
+                                pathAndNode = ZKPaths.getPathAndNode(pathAndNode.getPath());
+                                mycatNodeService.setCliNode(pathAndNode.getNode(),
+                                        childsList == null ? 0 : childsList.size());
+                            }
                         }
                         break;
                     case NODE_UPDATED:
                         logger.debug(event);
                         break;
                     case NODE_REMOVED:
-                        int removePathDeep = event.getData().getPath().split(ZKPaths.PATH_SEPARATOR).length;
-                        if (removePathDeep - pathDeep == 2) {
-                            // 防止是mycat节点掉了引起的客户端节点迁移，睡眠60S等待一下看是否有mycat节点掉落事件到达
-                            Thread.sleep(60000);
-                            logger.debug("响应客户端节点丢失事件：" + event.getData().getPath());
-                            zkClient.doReconnMycat(false);
+                        if (mycatNodeService.isConnFlag()) {
+                            int removePathDeep = event.getData().getPath().split(ZKPaths.PATH_SEPARATOR).length;
+                            if (removePathDeep - pathDeep == 2) {
+                                // 防止是mycat节点掉了引起的客户端节点迁移，睡眠60S等待一下看是否有mycat节点掉落事件到达
+                                Thread.sleep(60000);
+                                logger.debug("响应客户端节点丢失事件：" + event.getData().getPath());
+                                zkClient.doReconnMycat(false);
+                            }
                         }
                         break;
                     default:
@@ -421,8 +429,11 @@ public class ZkClient {
                         break;
                     case CHILD_REMOVED:
                         // 服务端节点丢失，不需要判断，全节点都掉了
-                        logger.debug("响应mycat节点丢失事件：" + event.getData().getPath());
+                        logger.error("响应mycat节点丢失事件：" + event.getData().getPath());
                         mycatNodeService.removeMycatNode(event.getData().getPath());
+                        if (event.getData().getPath().equals(mycatNodeService.getConnNow().getServicePath())) {
+                            zkClient.doReconnMycat(true);
+                        }
                         break;
                     default:
                         logger.debug("PathChildrenCache changed : {path:" + event.getData().getPath() + " data:"
