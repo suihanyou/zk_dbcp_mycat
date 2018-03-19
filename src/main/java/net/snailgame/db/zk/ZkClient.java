@@ -61,7 +61,7 @@ public class ZkClient {
     private ZkDbConfig zkDbConfig;
     private EnumDbType enumDbType;
 
-    public ZkClient(DataSource dataSource, ZkDbConfig zkDbConfig, String userName, EnumDbType enumDbType)
+    public ZkClient(DataSource dataSource, ZkDbConfig zkDbConfig, String userName, EnumDbType enumDbType, String appName)
             throws Exception {
         if (zkConn == null) {
             this.zkDbConfig = zkDbConfig;
@@ -85,7 +85,7 @@ public class ZkClient {
             treeCache.start();
 
             // 初始化节点管理类
-            mycatNodeService.init(dataSource, userName, servicePath, clientPath);
+            mycatNodeService.init(dataSource, userName, servicePath, clientPath, appName);
 
             doReconnMycat(true);
 
@@ -188,7 +188,8 @@ public class ZkClient {
             ConnMycatInfoVo connNow = mycatNodeService.getConnNow();
             ConnMycatInfoVo connNext = mycatNodeService.getConnNext();
             if (connNow != null && connNow.getServicePath().equals(connNext.getServicePath())) {
-                mycatNodeService.reset(false);
+                // 如果当前节点不为空，并且计算出的下一个节点和当前节点完全一样，就不用做任何事情了
+                // mycatNodeService.reset(false);
             } else {
                 switch (enumDbType) {
                     case DBCP:

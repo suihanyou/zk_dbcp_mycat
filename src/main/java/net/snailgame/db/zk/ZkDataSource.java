@@ -1,6 +1,7 @@
 package net.snailgame.db.zk;
 
 import java.io.PrintWriter;
+import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
@@ -44,6 +45,8 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
     private MycatNodeService mycatNodeService;
     private SqlSessionFactoryBean sqlSessionFactoryBean;
     private ZkClient zkClient;
+    private boolean flag = false;
+    private String appName = "UNKNOW-";
 
     @Override
     public Object postProcessBeforeInitialization(Object bean, String beanName) throws BeansException {
@@ -63,7 +66,6 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         return bean;
     }
-
 
     @Override
     public void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) throws BeansException {
@@ -89,9 +91,19 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
             dataSource = druidDataSource;
             userName = druidDataSource.getUsername();
         }
+        try {
+            Class<?> configClass = Class.forName("net.snailgame.ocs.base.utils.conf.BaseConf");
+            Object config = beanFactory.getBean(configClass);
+            if (config != null) {
+                Method m = config.getClass().getMethod("getServerName");
+                appName = m.invoke(config).toString().concat("-");
+            }
+        } catch (Exception e) {
+            logger.warn("没有设置config,新计费程序框架特有，如果不是新计费程序，不用关心");
+        }
 
         try {
-            zkClient = new ZkClient(dataSource, zkDbConfig, userName, zkDbConfig.getDbType());
+            zkClient = new ZkClient(dataSource, zkDbConfig, userName, zkDbConfig.getDbType(), appName);
             setMycatNodeService(zkClient.getMycatNodeService());
 
             sqlSessionFactoryBean = beanFactory.getBean(SqlSessionFactoryBean.class);
@@ -106,6 +118,7 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
             DataSourceTransactionManager transactionManager = beanFactory.getBean(DataSourceTransactionManager.class);
             transactionManager.setDataSource(this);
             transactionManager.afterPropertiesSet();
+
         } catch (Exception e) {
             logger.warn("没有设置transactionManager");
         }
@@ -162,6 +175,11 @@ public class ZkDataSource implements DataSource, BeanFactoryPostProcessor, BeanP
     public Connection getConnection() throws SQLException {
         Connection connection = null;
         try {
+            if (!flag) {
+                // 提供给第一次的mycat 连接节点输出到日志
+                logger.warn(mycatNodeService.getConnNow().getUrl());
+                flag = true;
+            }
             connection = mycatNodeService.getDataSource().getConnection();
             mycatNodeService.setConnFlag(true);
         } catch (Exception e) {

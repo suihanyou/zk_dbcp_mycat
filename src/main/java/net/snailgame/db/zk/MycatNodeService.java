@@ -48,13 +48,15 @@ public class MycatNodeService {
     private String servicePath;
     private String clientPath;
     private volatile DataSource dataSource;
+    private String appName;
     private boolean connFlag = false;
 
-    public void init(DataSource dataSource, String userName, String servicePath, String clientPath) {
+    public void init(DataSource dataSource, String userName, String servicePath, String clientPath, String appName) {
         this.userName = userName;
         this.dataSource = dataSource;
         this.servicePath = servicePath;
         this.clientPath = clientPath;
+        this.appName = appName;
     }
 
     public void reset(boolean reconn) {
@@ -115,7 +117,8 @@ public class MycatNodeService {
             // 找到了下个需要连接的节点
             if (flag)
                 if (serviceTemp != null) {
-                    connNext = new ConnMycatInfoVo(serviceTemp, clientTemp, nodes.get(serviceTemp), getUserName());
+                    connNext = new ConnMycatInfoVo(serviceTemp, clientTemp, nodes.get(serviceTemp), getUserName(),
+                            appName);
                     if (connNow == null) {
                         setNeedReconn(true);
                         return true;
@@ -210,7 +213,11 @@ public class MycatNodeService {
     public void setCliNode(String nodeName, int number) {
         try {
             lock.lock();
-            nodes.get(ZKPaths.makePath(this.getServicePath(), nodeName)).setNumber(number);
+            String path = ZKPaths.makePath(this.getServicePath(), nodeName);
+            // 判断下空，防止这个时候有新的mycat 注册上来，而信息还没有注册到内存的空指针错误
+            if (nodes.get(path) != null) {
+                nodes.get(path).setNumber(number);
+            }
         } finally {
             lock.unlock();
         }

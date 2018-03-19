@@ -24,13 +24,13 @@ public class ConnMycatInfoVo {
     private String passwd;
     private String nodeId;
 
-    public ConnMycatInfoVo(String servicePath, String clientPath, MycatNodeVo vo, String userName) {
+    public ConnMycatInfoVo(String servicePath, String clientPath, MycatNodeVo vo, String userName, String appName) {
         this.url = vo.getUrl();
         this.servicePath = servicePath;
         this.clientPath = clientPath;
         this.passwd = vo.getUsers().get(userName).getPasswd();
         this.userName = vo.getUsers().get(userName).getUserName();
-        this.nodeId = UUID.randomUUID().toString();
+        this.nodeId = appName.concat(UUID.randomUUID().toString());
     }
 
     public String getUserName() {
